@@ -81,7 +81,7 @@ Conversation history, user/assistant messages, turns и compaction относя�
 |---|---|---|
 | Идентичность | [ExecutionScope](../../crates/proteus-contracts/src/contracts/execution.rs) содержит `ExecutionId` и cancellation без chat identity | Уже есть основа одного выполнения; `TurnId` и broker `InvocationRef` остаются отдельными identity |
 | Component invocation | [Component Runtime v2 / wire v3](process-module-architecture.md) обслуживает persistent multi-export процессы, callbacks, deadlines, отмену и restart | Общий process lifecycle можно использовать; terminal одного вызова не является durable settlement всей задачи |
-| Снимок и admission | [AgentRuntime](../../crates/proteus-core/src/core/runtime/execution.rs) захватывает snapshot и scope для Turn и typed операций `execute_tool` / `remember` | Механизм уже есть для этих входов; публичного входа произвольной предметной задачи пока нет |
+| Снимок и admission | [AgentRuntime](../../crates/proteus-core/src/core/runtime/execution.rs) захватывает snapshot и scope для Turn и `execute_tool`; `/remember` использует этот же tool path | Механизм уже есть для этих входов; публичного входа произвольной предметной задачи пока нет |
 | Самостоятельный Workflow | [WorkflowInvocationContext](../../crates/proteus-contracts/src/contracts/workflow/invocation.rs) имеет `Execution` без conversation; [registry](../../crates/proteus-core/src/core/registry.rs) создаёт такой context | Прямой вызов процессора без модели и диалога возможен; отдельный registry invocation не получает admission и settlement произвольной операции от `AgentRuntime` |
 | Вход и результат | [AgentTask](../../crates/proteus-contracts/src/domain/task.rs) требует текст и `cwd`; [WorkflowOutput](../../crates/proteus-contracts/src/contracts/workflow.rs) содержит `AgentOutput`, messages и compactions | Событие можно закодировать текстом и результат положить в metadata, но естественный типизированный предметный вход и результат отсутствуют |
 | Разрешённые действия | [WorkflowHostRuntime](../../crates/proteus-core/src/core/workflow_host.rs) исполняет detached tools через `BoundTools` | Общий policy/approval/safety path уже применяется без чата |
@@ -107,7 +107,7 @@ admission, состояния и завершения.
   conversation, с пустой history. Он проверяет контракт вызова, а не вход
   структурированной задачи через `AgentRuntime`.
 - [execution_boundary](../../crates/proteus-core/tests/execution_boundary.rs)
-  проверяет detached tools и memory, admission и recording без Turn.
+   проверяет detached tools, включая запись памяти, admission и recording без Turn.
 - [project_check_workflow](../../modules/reference/process-module/tests/project_check_workflow.rs)
   проверяет детерминированный controller и replay без model call на success
   path, но его верхний жизненный цикл по-прежнему является Turn.

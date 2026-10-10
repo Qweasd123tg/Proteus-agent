@@ -1,13 +1,13 @@
-use std::{path::Path, process::Stdio, sync::Arc};
+use std::{path::Path, process::Stdio};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use async_trait::async_trait;
 use proteus_process_host::ProcessSpec;
 use serde_json::json;
 use tokio::process::Command;
 
 use crate::{
-    contracts::{SearchBackend, Tool, ToolContext, ToolRegistry, ToolSource},
+    contracts::{Tool, ToolContext, ToolRegistry, ToolSource},
     core::process_output::{
         DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, annotate_bounded_output, wait_with_bounded_output,
     },
@@ -15,19 +15,11 @@ use crate::{
     domain::{ToolCall, ToolResult, ToolSafety, ToolSpec},
 };
 
-use super::SearchTool;
-
 mod mcp;
 
 pub use mcp::ConfiguredMcpTool;
 
 use mcp::{configured_mcp_inline_host, register_discovered_mcp_tools};
-
-#[derive(Clone)]
-pub struct ConfiguredNativeTool {
-    spec: ToolSpec,
-    inner: Arc<dyn Tool>,
-}
 
 #[derive(Debug, Clone)]
 pub struct ConfiguredProcessTool {
@@ -35,26 +27,9 @@ pub struct ConfiguredProcessTool {
     process: ProcessSpec,
 }
 
-impl ConfiguredNativeTool {
-    pub fn new(spec: ToolSpec, inner: Arc<dyn Tool>) -> Self {
-        Self { spec, inner }
-    }
-}
-
 impl ConfiguredProcessTool {
     pub fn new(spec: ToolSpec, process: ProcessSpec) -> Self {
         Self { spec, process }
-    }
-}
-
-#[async_trait]
-impl Tool for ConfiguredNativeTool {
-    fn spec(&self) -> ToolSpec {
-        self.spec.clone()
-    }
-
-    async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
-        self.inner.invoke(call, ctx).await
     }
 }
 
@@ -121,7 +96,6 @@ pub fn register_configured_tools(
     configured_tools: &[ConfiguredToolConfig],
     mcp_servers: &[ConfiguredMcpServerConfig],
     cwd: &Path,
-    search: Arc<dyn SearchBackend>,
 ) -> Result<Vec<proteus_contracts::app_protocol::addons::AppMcpServerState>> {
     let states = register_discovered_mcp_tools(registry, mcp_servers, cwd)?;
 
@@ -129,10 +103,6 @@ pub fn register_configured_tools(
         let source = configured_tool_source(configured);
         let spec = configured_tool_spec(configured);
         match &configured.executor {
-            ConfiguredToolExecutorConfig::Native { handler } => {
-                let inner = configured_native_handler(handler, search.clone())?;
-                registry.register_with_source(source, ConfiguredNativeTool::new(spec, inner))?;
-            }
             ConfiguredToolExecutorConfig::Process {
                 command,
                 args,
@@ -175,9 +145,6 @@ pub fn register_configured_tools(
 
 fn configured_tool_source(configured: &ConfiguredToolConfig) -> ToolSource {
     match &configured.executor {
-        ConfiguredToolExecutorConfig::Native { .. } => ToolSource::Config {
-            origin: "config:native".to_owned(),
-        },
         ConfiguredToolExecutorConfig::Mcp {
             server, command, ..
         } => ToolSource::Mcp {
@@ -208,9 +175,6 @@ fn configured_tool_spec(configured: &ConfiguredToolConfig) -> ToolSpec {
 
 fn effective_configured_tool_safety(configured: &ConfiguredToolConfig) -> ToolSafety {
     match &configured.executor {
-        ConfiguredToolExecutorConfig::Native { handler } => {
-            max_tool_safety(configured.safety.clone(), native_handler_safety(handler))
-        }
         ConfiguredToolExecutorConfig::Mcp { .. } => {
             mcp::effective_mcp_safety(configured.safety.clone())
         }
@@ -221,46 +185,6 @@ fn effective_configured_tool_safety(configured: &ConfiguredToolConfig) -> ToolSa
                 ToolSafety::RunsCommands
             }
         },
-    }
-}
-
-fn configured_native_handler(
-    handler: &str,
-    search: Arc<dyn SearchBackend>,
-) -> Result<Arc<dyn Tool>> {
-    match handler {
-        "search" => Ok(Arc::new(SearchTool::new(search))),
-        other => bail!(
-            "unsupported native tool handler: '{other}'. File I/O (read_file, \
-             write_file, list_dir), apply_patch and shell are provided by process \
-             tool modules — use tools.enabled with their tool names, \
-             not configured.native.handler."
-        ),
-    }
-}
-
-fn native_handler_safety(handler: &str) -> ToolSafety {
-    match handler {
-        "search" => ToolSafety::ReadOnly,
-        _ => ToolSafety::Dangerous,
-    }
-}
-
-fn max_tool_safety(left: ToolSafety, right: ToolSafety) -> ToolSafety {
-    if tool_safety_rank(&left) >= tool_safety_rank(&right) {
-        left
-    } else {
-        right
-    }
-}
-
-fn tool_safety_rank(safety: &ToolSafety) -> u8 {
-    match safety {
-        ToolSafety::ReadOnly => 0,
-        ToolSafety::WritesFiles => 1,
-        ToolSafety::RunsCommands => 2,
-        ToolSafety::Network => 3,
-        ToolSafety::Dangerous => 4,
     }
 }
 

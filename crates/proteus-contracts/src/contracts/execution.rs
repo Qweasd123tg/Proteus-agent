@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ApprovalTransport, CancellationToken, ExecutionPermissionGrants,
-        MemoryStore, Model, SearchBackend, ToolRegistry,
+        ApprovalPolicy, ApprovalTransport, CancellationToken, ExecutionPermissionGrants, Model,
+        ToolRegistry,
     },
     domain::{ExecutionId, new_execution_id},
 };
@@ -49,8 +49,6 @@ pub struct ExecutionContext {
     pub model_timeout_ms: u64,
     pub model: Option<Arc<dyn Model>>,
     pub hooks: Arc<dyn super::ExecutionHooks>,
-    pub search: Arc<dyn SearchBackend>,
-    pub memory: Arc<dyn MemoryStore>,
     pub tools: ToolRegistry,
     pub policy: Arc<dyn ApprovalPolicy>,
     pub approval: Arc<dyn ApprovalTransport>,
@@ -70,8 +68,6 @@ impl ExecutionContext {
         scope: ExecutionScope,
         model_timeout_ms: u64,
         model: Option<Arc<dyn Model>>,
-        search: Arc<dyn SearchBackend>,
-        memory: Arc<dyn MemoryStore>,
         tools: ToolRegistry,
         policy: Arc<dyn ApprovalPolicy>,
         approval: Arc<dyn ApprovalTransport>,
@@ -81,8 +77,6 @@ impl ExecutionContext {
             model_timeout_ms,
             model,
             hooks: Arc::new(super::NoExecutionHooks),
-            search,
-            memory,
             tools,
             policy,
             approval,

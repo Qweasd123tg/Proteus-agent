@@ -221,8 +221,9 @@ config summary, `/history` — длину live history, `/usage` — расхо�
 `/clear` очищает live history projection и, если подключён `SessionStore`,
 append-ит canonical empty replacement в journal. `/remember` запускает
 отдельную top-level execution на стороне app-server,
-атомарно bind-ит выбранный `MemoryStore` через `BoundMemory` и минует Workflow —
-это explicit direct-user operation для ручных preferences/facts; первое слово
+атомарно bind-ит enabled `remember_fact` через `BoundTools` и минует Workflow.
+Запись проходит обычные policy/approval/safety, cancellation и tool journal;
+отдельного memory service bypass нет. Первое слово
 интерпретируется как kind (`preference` или `fact`), остаток идёт как content.
 Если первое слово не распознано — всё считается `fact`.
 
@@ -448,7 +449,7 @@ source/spec, `agent_control_surface` и default permission mode. Каждый
 захватывает assembly snapshot вместе с effective `model_ref`, reasoning и
 permission mode в immutable `ExecutionAdmissionSnapshot`; Turn journal, model
 binding, policy и Workflow используют только эти значения до settlement.
-`AgentRuntime::execute_tool` и `AgentRuntime::remember` используют тот же
+`AgentRuntime::execute_tool`, включая app-server `/remember`, использует тот же
 capture primitive и удерживают selected capability до terminal result. Поэтому concurrent `/model`, `/mode`, `/effort`,
 `/reasoning` или reload относятся уже к следующей execution и не создают смесь
 старого registry с новыми overrides.
@@ -465,7 +466,7 @@ ids и зарегистрированными tools, включая их `suppor
 future и не позволяет продолжить оборванный call после crash. Текущий Turn
 удерживает один coherent snapshot до завершения; реализованный
 `ExecutionContext` bind-ится из него один раз. Top-level operations bind-ят
-`BoundTools` либо `BoundMemory` ровно один раз, но не создают `ExecutionContext`.
+`BoundTools` ровно один раз, но не создают `ExecutionContext`.
 
 Если у runtime есть `SessionStore`, top-level tool operation пишет canonical
 `ToolCallRecorded`/`ToolResultRecorded` с одним `execution_id` и без
@@ -496,10 +497,10 @@ future и не позволяет продолжить оборванный call
 `apply_patch` фиксируется обычным `ToolFinished`, как любой другой process tool;
 отдельного patch event path нет.
 
-Автоматического post-turn memory event path больше нет: `MemoryPolicy` и
-эвристика `carry_forward` удалены. `remember_fact` передаёт tool-owned
-attribution/cancellation, а `/remember` — detached top-level context в один
-активный `MemoryStore`; отдельного memory event runtime не испускает.
+Запись памяти через `remember_fact`, в том числе `/remember`, фиксируется
+обычными tool facts/events с host-owned attribution/cancellation. Автоматическое
+чтение — context provider; фоновой post-turn записи и отдельного memory event
+path нет.
 
 `SubagentStarted` и `SubagentFinished` описывают live-работу process peer-а:
 роль, краткое описание, статус, число итераций и

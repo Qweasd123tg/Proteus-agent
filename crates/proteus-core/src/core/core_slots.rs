@@ -18,13 +18,13 @@ pub(crate) struct CoreSlotDescriptor {
     pub selection: CoreSlotSelection,
 }
 
-pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 9] = [
+pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 7] = [
     CoreSlotDescriptor {
         kind: ModuleKind::Hook,
         title: "Hooks",
         responsibility: "Applies ordered typed execution contributions.",
         category: "pipeline",
-        order: 8,
+        order: 6,
         required: false,
         selection: CoreSlotSelection::OrderedModulesConfig,
     },
@@ -80,24 +80,6 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 9] = [
         category: "pipeline",
         order: 5,
         required: true,
-        selection: CoreSlotSelection::ModulesConfig,
-    },
-    CoreSlotDescriptor {
-        kind: ModuleKind::Search,
-        title: "Search",
-        responsibility: "Provides repository/search backend.",
-        category: "backend",
-        order: 6,
-        required: false,
-        selection: CoreSlotSelection::ModulesConfig,
-    },
-    CoreSlotDescriptor {
-        kind: ModuleKind::Memory,
-        title: "Memory",
-        responsibility: "Persists and retrieves explicit memories.",
-        category: "backend",
-        order: 7,
-        required: false,
         selection: CoreSlotSelection::ModulesConfig,
     },
 ];

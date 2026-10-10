@@ -2,29 +2,27 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use proteus_contracts::{
     contracts::{
-        CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD, ExecutionAttribution,
-        PROCESS_COMPACTOR_METHOD, PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_PROVIDER_METHOD,
-        PROCESS_MEMORY_RECALL_METHOD, PROCESS_MEMORY_REMEMBER_METHOD,
-        PROCESS_POLICY_EVALUATE_METHOD, PROCESS_SEARCH_METHOD, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
+        CONTEXT_HOST_PROVIDER_METHOD, ExecutionAttribution, PROCESS_COMPACTOR_METHOD,
+        PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_PROVIDER_METHOD,
+        PROCESS_POLICY_EVALUATE_METHOD, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
         PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, PROCESS_WORKFLOW_METHOD,
         ProcessCompactionResponse, ProcessContextChunksResponse, ProcessContextInput,
-        ProcessContextProviderInput, ProcessContextRecallInput, ProcessContextResponse,
-        ProcessMemoryRecallInput, ProcessMemoryRecallResponse, ProcessMemoryRememberInput,
-        ProcessPolicyEvaluateInput, ProcessPolicyResponse, ProcessSearchResponse,
-        ProcessToolExposureInput, ProcessToolExposureResponse, ProcessToolInvokeInput,
-        ProcessToolInvokeResponse, ProcessToolListResponse, ProcessWorkflowInput,
-        ProcessWorkflowResponse, ProcessWorkflowRuntimeInfo, ToolExposureInput, ToolExposureOutput,
-        ToolExposureRequest, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
-        WORKFLOW_HOST_COMPACT_HISTORY_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
-        WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
-        WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
-        WorkflowBuildContextRequest, WorkflowCompactHistoryRequest, WorkflowCompleteModelRequest,
-        WorkflowHostAck, WorkflowRuntimeStatus,
+        ProcessContextProviderInput, ProcessContextProviderRequest, ProcessContextResponse,
+        ProcessPolicyEvaluateInput, ProcessPolicyResponse, ProcessToolExposureInput,
+        ProcessToolExposureResponse, ProcessToolInvokeInput, ProcessToolInvokeResponse,
+        ProcessToolListResponse, ProcessWorkflowInput, ProcessWorkflowResponse,
+        ProcessWorkflowRuntimeInfo, ToolExposureInput, ToolExposureOutput, ToolExposureRequest,
+        WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
+        WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
+        WORKFLOW_HOST_RUNTIME_STATUS_METHOD, WORKFLOW_HOST_SELECT_TOOLS_METHOD,
+        WORKFLOW_HOST_VISIBLE_TOOLS_METHOD, WorkflowBuildContextRequest,
+        WorkflowCompactHistoryRequest, WorkflowCompleteModelRequest, WorkflowHostAck,
+        WorkflowRuntimeStatus,
     },
     domain::{
-        AgentTask, ContextBundle, MemoryItem, MemoryQuery, ModelRef, PolicyDecision,
-        ReasoningConfig, ToolCall, ToolSafety, ToolSpec, new_call_id, new_execution_id,
-        new_session_id, new_thread_id, new_turn_id,
+        AgentTask, ContextBundle, ContextChunk, MemoryQuery, ModelRef, PolicyDecision,
+        ReasoningConfig, SearchQuery, ToolCall, ToolSafety, ToolSpec, new_call_id,
+        new_execution_id, new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::{CanonicalMessage, CanonicalModelResponse, FinishReason, MessageRole},
 };
@@ -150,11 +148,14 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
         ("tool", "rust_lsp"),
         ("tool", "skill_tool"),
         ("tool", "policy_tools"),
-        ("search", "rg"),
+        ("tool", "rg_search"),
+        ("context_provider", "rg_search"),
         ("tool", "direct_patch"),
         ("tool", "codex_patch"),
-        ("memory", "jsonl"),
-        ("memory", "sqlite"),
+        ("tool", "jsonl_memory"),
+        ("context_provider", "jsonl_memory"),
+        ("tool", "sqlite_memory"),
+        ("context_provider", "sqlite_memory"),
         ("context", "simple"),
         ("context", "repo_aware"),
         ("context", "codex_context"),
@@ -404,19 +405,43 @@ fn search_patch_and_memory_round_trip_canonical_dtos() {
         .output()
         .is_ok_and(|output| output.status.success())
     {
-        let search = connect(workspace.path(), "search", "rg", json!({}));
-        let query = proteus_contracts::contracts::SearchQuery::new(
-            "process boundary",
-            workspace.path().to_path_buf(),
-            5,
-        );
-        let response: ProcessSearchResponse = invoke(
+        let search = connect(workspace.path(), "tool", "rg_search", json!({}));
+        let query = SearchQuery::new("process boundary", workspace.path().to_path_buf(), 5);
+        let response: ProcessToolInvokeResponse = invoke(
             &search,
-            PROCESS_SEARCH_METHOD,
-            serde_json::to_value(query).expect("search input"),
+            PROCESS_TOOL_INVOKE_METHOD,
+            serde_json::to_value(ProcessToolInvokeInput {
+                call: ToolCall::new(
+                    new_call_id(),
+                    "search",
+                    json!({"query": query.text, "max_results": 5}),
+                ),
+                cwd: workspace.path().into(),
+                attribution: ExecutionAttribution::detached(new_execution_id()),
+                skills: Default::default(),
+            })
+            .expect("search input"),
         );
-        assert_eq!(response.chunks.len(), 1);
-        assert_eq!(response.chunks[0].source, "rg");
+        let chunks: Vec<ContextChunk> =
+            serde_json::from_value(response.result.metadata["chunks"].clone()).unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].source, "rg");
+        let provider = connect(workspace.path(), "context_provider", "rg_search", json!({}));
+        let provided: ProcessContextChunksResponse = invoke(
+            &provider,
+            PROCESS_CONTEXT_PROVIDER_METHOD,
+            serde_json::to_value(ProcessContextProviderRequest {
+                input: ProcessContextProviderInput {
+                    provider_id: "rg_search".into(),
+                    task: AgentTask::new("context", workspace.path().into()),
+                    metadata: serde_json::to_value(query).unwrap(),
+                },
+                attribution: ExecutionAttribution::detached(new_execution_id()),
+                skills: Default::default(),
+            })
+            .unwrap(),
+        );
+        assert_eq!(provided.result, chunks);
     }
 
     for module_id in ["direct_patch", "codex_patch"] {
@@ -442,38 +467,122 @@ fn search_patch_and_memory_round_trip_canonical_dtos() {
         );
     }
 
-    for module_id in ["jsonl", "sqlite"] {
+    for module_id in ["jsonl_memory", "sqlite_memory"] {
         let path = workspace.path().join(format!("configured-{module_id}.db"));
-        let memory = connect(
-            workspace.path(),
-            "memory",
-            module_id,
-            json!({ "path": path }),
-        );
-        let item = MemoryItem::new(
-            "fact",
-            format!("remembered by {module_id}"),
-            json!({"module": module_id}),
-        );
+        let memory = connect(workspace.path(), "tool", module_id, json!({ "path": path }));
         let attribution = ExecutionAttribution::detached(new_execution_id());
-        let _: proteus_contracts::contracts::ProcessMemoryRememberResponse = invoke(
+        let listed: ProcessToolListResponse =
+            invoke(&memory, PROCESS_TOOL_LIST_METHOD, Value::Null);
+        for (name, safety, parallel) in [
+            ("remember_fact", ToolSafety::WritesFiles, false),
+            ("recall_memory", ToolSafety::ReadOnly, true),
+        ] {
+            let spec = &listed
+                .result
+                .iter()
+                .find(|tool| tool.spec.name == name)
+                .unwrap()
+                .spec;
+            assert_eq!(spec.safety, safety);
+            assert_eq!(spec.supports_parallel_tool_calls, parallel);
+        }
+        for args in [
+            json!({"kind": "invalid", "content": "must not persist"}),
+            json!({"kind": "fact", "content": "   "}),
+            json!({"kind": "fact"}),
+            json!({"content": "must not persist"}),
+        ] {
+            let rejected = memory
+                .invoke(
+                    PROCESS_TOOL_INVOKE_METHOD,
+                    serde_json::to_value(ProcessToolInvokeInput {
+                        call: ToolCall::new(new_call_id(), "remember_fact", args),
+                        cwd: workspace.path().into(),
+                        attribution,
+                        skills: Default::default(),
+                    })
+                    .unwrap(),
+                    TIMEOUT,
+                )
+                .expect("invalid memory call transport");
+            assert!(
+                matches!(rejected.terminal, ProcessModuleTerminal::ModuleError(error)
+                if error.message.contains("remember_fact"))
+            );
+        }
+        let remembered: ProcessToolInvokeResponse = invoke(
             &memory,
-            PROCESS_MEMORY_REMEMBER_METHOD,
-            serde_json::to_value(ProcessMemoryRememberInput { item, attribution })
+            PROCESS_TOOL_INVOKE_METHOD,
+            serde_json::to_value(ProcessToolInvokeInput {
+                call: ToolCall::new(new_call_id(), "remember_fact", json!({"kind": "fact", "content": format!("remembered by {module_id}"), "metadata": {"module": module_id}})),
+                cwd: workspace.path().into(), attribution, skills: Default::default(),
+            })
                 .expect("remember input"),
         );
-        let recalled: ProcessMemoryRecallResponse = invoke(
+        assert!(remembered.result.ok);
+        let recalled: ProcessToolInvokeResponse = invoke(
             &memory,
-            PROCESS_MEMORY_RECALL_METHOD,
-            serde_json::to_value(ProcessMemoryRecallInput {
-                query: MemoryQuery::new(module_id, 5),
+            PROCESS_TOOL_INVOKE_METHOD,
+            serde_json::to_value(ProcessToolInvokeInput {
+                call: ToolCall::new(
+                    new_call_id(),
+                    "recall_memory",
+                    json!({"query": module_id, "limit": 5}),
+                ),
+                cwd: workspace.path().into(),
                 attribution,
+                skills: Default::default(),
             })
             .expect("recall input"),
         );
-        assert_eq!(recalled.result.len(), 1, "memory module {module_id}");
-        assert_eq!(recalled.result[0].metadata["module"], module_id);
+        assert_eq!(
+            recalled.result.metadata["items"].as_array().unwrap().len(),
+            1,
+            "memory module {module_id}"
+        );
+        assert_eq!(
+            recalled.result.metadata["items"][0]["metadata"]["module"],
+            module_id
+        );
+        let empty: ProcessToolInvokeResponse = invoke(
+            &memory,
+            PROCESS_TOOL_INVOKE_METHOD,
+            serde_json::to_value(ProcessToolInvokeInput {
+                call: ToolCall::new(
+                    new_call_id(),
+                    "recall_memory",
+                    json!({"query": "", "limit": 0}),
+                ),
+                cwd: workspace.path().into(),
+                attribution,
+                skills: Default::default(),
+            })
+            .unwrap(),
+        );
+        assert_eq!(empty.result.metadata["items"], json!([]));
         assert!(path.exists(), "memory module ignored handshake config");
+        let provider = connect(
+            workspace.path(),
+            "context_provider",
+            module_id,
+            json!({"path": path}),
+        );
+        let provided: ProcessContextChunksResponse = invoke(
+            &provider,
+            PROCESS_CONTEXT_PROVIDER_METHOD,
+            serde_json::to_value(ProcessContextProviderRequest {
+                input: ProcessContextProviderInput {
+                    provider_id: module_id.into(),
+                    task: AgentTask::new("context", workspace.path().into()),
+                    metadata: serde_json::to_value(MemoryQuery::new(module_id, 5)).unwrap(),
+                },
+                attribution,
+                skills: Default::default(),
+            })
+            .unwrap(),
+        );
+        assert_eq!(provided.result.len(), 1);
+        assert_eq!(provided.result[0].metadata["module"], module_id);
     }
 }
 
@@ -526,6 +635,7 @@ fn policy_exposure_provider_and_compactor_execute_in_worker() {
                     task: AgentTask::new("list skills", workspace.path().to_path_buf()),
                     metadata: Value::Null,
                 },
+                attribution: ExecutionAttribution::detached(new_execution_id()),
                 skills: Default::default(),
             },
         )
@@ -559,12 +669,12 @@ struct ContextDispatcher;
 impl AsyncHostRequestDispatcher for ContextDispatcher {
     fn dispatch(&self, request: ComponentHostRequest) -> HostRequestFuture {
         let result = match request.method.as_str() {
-            CONTEXT_HOST_SEARCH_METHOD => {
-                serde_json::to_value(Vec::<proteus_contracts::domain::ContextChunk>::new())
+            CONTEXT_HOST_PROVIDER_METHOD => {
+                let _: ProcessContextProviderInput =
+                    serde_json::from_value(request.params).unwrap();
+                serde_json::to_value(Vec::<ContextChunk>::new())
                     .map_err(|error| ProcessModuleRpcError::new(-32603, error.to_string()))
             }
-            CONTEXT_HOST_RECALL_MEMORY_METHOD => serde_json::to_value(Vec::<MemoryItem>::new())
-                .map_err(|error| ProcessModuleRpcError::new(-32603, error.to_string())),
             method => Err(ProcessModuleRpcError::new(
                 -32601,
                 format!("unexpected context callback {method}"),
@@ -577,9 +687,15 @@ impl AsyncHostRequestDispatcher for ContextDispatcher {
 #[test]
 fn context_worker_uses_only_its_slot_callback_authority() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let session = connect(workspace.path(), "context", "simple", json!({}));
+    let session = connect(
+        workspace.path(),
+        "context",
+        "simple",
+        json!({"search_provider": "search-fixture", "memory_provider": "memory-fixture"}),
+    );
     let input = ProcessContextInput {
         task: AgentTask::new("canonical context", workspace.path().to_path_buf()),
+        attribution: ExecutionAttribution::detached(new_execution_id()),
     };
     let invocation = session
         .invoke_with_dispatcher_and_cancel_check(
@@ -612,6 +728,7 @@ fn context_worker_uses_only_its_slot_callback_authority() {
                     PROCESS_CONTEXT_BUILD_METHOD,
                     serde_json::to_value(ProcessContextInput {
                         task: AgentTask::new("inspect rules", workspace.path().into()),
+                        attribution: ExecutionAttribution::detached(new_execution_id()),
                     })
                     .unwrap(),
                     TIMEOUT,
@@ -783,20 +900,17 @@ fn workflow_worker_runs_a_complete_callback_driven_turn() {
 struct NestedMemoryDispatcher {
     broker: WeakComponentBroker,
     memory: proteus_contracts::contracts::ProcessComponentExportRef,
+    attribution: ExecutionAttribution,
 }
 
 impl AsyncHostRequestDispatcher for NestedMemoryDispatcher {
     fn dispatch(&self, request: ComponentHostRequest) -> HostRequestFuture {
         match request.method.as_str() {
-            CONTEXT_HOST_SEARCH_METHOD => {
-                let result = encode_callback(Vec::<proteus_contracts::domain::ContextChunk>::new());
-                Box::pin(async move { result })
-            }
-            CONTEXT_HOST_RECALL_MEMORY_METHOD => {
+            CONTEXT_HOST_PROVIDER_METHOD => {
                 let broker = self.broker.clone();
                 let target = self.memory.clone();
                 let input =
-                    match serde_json::from_value::<ProcessContextRecallInput>(request.params) {
+                    match serde_json::from_value::<ProcessContextProviderInput>(request.params) {
                         Ok(input) => input,
                         Err(error) => {
                             return Box::pin(async move {
@@ -804,6 +918,7 @@ impl AsyncHostRequestDispatcher for NestedMemoryDispatcher {
                             });
                         }
                     };
+                let attribution = self.attribution;
                 Box::pin(async move {
                     let broker = broker.upgrade().ok_or_else(|| {
                         ProcessModuleRpcError::new(-32603, "component broker was dropped")
@@ -812,10 +927,11 @@ impl AsyncHostRequestDispatcher for NestedMemoryDispatcher {
                         .start_nested_invocation(
                             &request.invocation,
                             &target,
-                            PROCESS_MEMORY_RECALL_METHOD,
-                            serde_json::to_value(ProcessMemoryRecallInput {
-                                query: input.query,
-                                attribution: ExecutionAttribution::detached(new_execution_id()),
+                            PROCESS_CONTEXT_PROVIDER_METHOD,
+                            serde_json::to_value(ProcessContextProviderRequest {
+                                input,
+                                attribution,
+                                skills: Default::default(),
                             })
                             .map_err(|error| {
                                 ProcessModuleRpcError::new(-32603, error.to_string())
@@ -837,7 +953,7 @@ impl AsyncHostRequestDispatcher for NestedMemoryDispatcher {
                         )
                     })? {
                         ProcessModuleTerminal::Success(value) => {
-                            let response: ProcessMemoryRecallResponse =
+                            let response: ProcessContextChunksResponse =
                                 serde_json::from_value(value).map_err(|error| {
                                     ProcessModuleRpcError::new(-32603, error.to_string())
                                 })?;
@@ -864,13 +980,18 @@ impl AsyncHostRequestDispatcher for NestedMemoryDispatcher {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn same_component_callback_can_reenter_another_export() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let context =
-        ProcessExportBinding::new("context", "simple", "v2", json!({})).expect("context binding");
+    let context = ProcessExportBinding::new(
+        "context",
+        "simple",
+        "v3",
+        json!({"memory_provider": "jsonl_memory"}),
+    )
+    .expect("context binding");
     let context_target = context.export_ref();
     let memory = ProcessExportBinding::new(
-        "memory",
-        "jsonl",
-        "v2",
+        "context_provider",
+        "jsonl_memory",
+        "v4",
         json!({"path": workspace.path().join("nested-memory.jsonl")}),
     )
     .expect("memory binding");
@@ -882,9 +1003,11 @@ async fn same_component_callback_can_reenter_another_export() {
         ComponentBrokerOptions::default(),
     )
     .expect("reentrant component");
+    let attribution = ExecutionAttribution::detached(new_execution_id());
     let dispatcher: Arc<dyn AsyncHostRequestDispatcher> = Arc::new(NestedMemoryDispatcher {
         broker: broker.downgrade(),
         memory: memory_target,
+        attribution,
     });
 
     let terminal = broker
@@ -893,6 +1016,7 @@ async fn same_component_callback_can_reenter_another_export() {
             PROCESS_CONTEXT_BUILD_METHOD,
             serde_json::to_value(ProcessContextInput {
                 task: AgentTask::new("nested memory", workspace.path().to_path_buf()),
+                attribution,
             })
             .expect("context input"),
             TIMEOUT,

@@ -18,14 +18,21 @@ if [ "$mode" = "slow_initialize" ]; then
     sleep 0.4
 fi
 if [ "$mode" = "mismatch" ]; then
-    slot=memory
+    slot=context_provider
 else
-    slot=search
+    slot=tool
 fi
-printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"$slot\",\"module_id\":\"$module_id\",\"contract_version\":\"v2\",\"composition\":\"select_one\",\"module_features\":[],\"config_schema\":null}]}}"
+printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"$slot\",\"module_id\":\"$module_id\",\"contract_version\":\"v5\",\"composition\":\"ordered_many\",\"module_features\":[],\"config_schema\":null}]}}"
 
 while IFS= read -r search_request; do
     request_id=$(rpc_id "$search_request")
+    case "$search_request" in
+        *'"method":"list"'*)
+            printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"result\":[{\"spec\":{\"name\":\"search\",\"description\":\"Search fixture\",\"input_schema\":{\"type\":\"object\"},\"surface\":{\"kind\":\"function\",\"strict\":false,\"output_schema\":null},\"safety\":\"ReadOnly\",\"supports_parallel_tool_calls\":true,\"timeout_ms\":3000,\"metadata\":{}},\"model_visible\":true,\"user_command\":null}]}}"
+            continue
+            ;;
+    esac
+    call_id=$(printf '%s' "$search_request" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["params"]["params"]["call"]["id"]))')
     case "$mode" in
         exit)
             exit 9
@@ -37,7 +44,7 @@ while IFS= read -r search_request; do
             printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":[]}"
             ;;
         *)
-            printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"chunks\":[{\"source\":\"process:$module_id\",\"path\":\"sample.txt\",\"content\":\"hit from $module_id\",\"render_mode\":\"source_annotated\",\"score\":1.0,\"metadata\":{\"fixture\":true}}]}}"
+            printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"result\":{\"call_id\":$call_id,\"ok\":true,\"output\":\"hit from $module_id\",\"content\":[],\"error\":null,\"metadata\":{\"chunks\":[{\"source\":\"process:$module_id\",\"path\":\"sample.txt\",\"content\":\"hit from $module_id\",\"render_mode\":\"source_annotated\",\"score\":1.0,\"metadata\":{\"fixture\":true}}]}}}}"
             ;;
     esac
 done

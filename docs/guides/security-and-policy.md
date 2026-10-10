@@ -190,16 +190,17 @@ plan flow UI может просить модель вернуть staged read-o
 Reference `exec_command` / `write_stdin`, file read/search/list, git reads и
 `skill` явно разрешают параллельность. `shell`, file write/edit,
 `update_plan`, `request_permissions` и `lsp_diagnostics` — последовательные.
-Core facade `search` и workflow-owned search/describe также разрешают её;
+Process tools `search`, `recall_memory` и workflow-owned search/describe также разрешают её;
 остальные facades используют исходное `false`.
 
-## Встроенные Tools
+## Основные Tools
 
 | Tool | Safety | Поведение |
 |---|---|---|
 | `apply_patch` | `WritesFiles` | process tool применяет workspace-scoped patch выбранным алгоритмом |
-| `remember_fact` | `WritesFiles` | кладёт preference/fact в `MemoryStore` (пишет в SQLite/JSONL, не в workspace-файлы) |
-| `search` | `ReadOnly` | вызывает выбранный `SearchBackend` |
+| `remember_fact` | `WritesFiles` | process tool сохраняет preference/fact в module-owned SQLite/JSONL |
+| `recall_memory` | `ReadOnly` | process tool возвращает memory items, включая structured `metadata.items` |
+| `search` | `ReadOnly` | process tool выполняет поиск и возвращает structured `metadata.chunks` |
 | `request_user_input` / `AskUserQuestion` | `ReadOnly` | запрашивает typed ответ через `UserInputTransport`; второй id — provider-compatible alias |
 | `task` | `WritesFiles` | foreground subagent facade; может запустить writing/worktree роль и потому проходит write approval boundary |
 | `spawn_agent` | `WritesFiles` | экспериментальный async subagent spawn; доступен только для `parallel_safe`, `isolation = none` ролей, но сохраняет консервативный safety floor |
@@ -216,18 +217,21 @@ File I/O (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
 
 `read_many_files.max_bytes_total` ограничивает весь текстовый output, включая
 заголовки файлов и разделители; `total_returned_bytes` равен его размеру в UTF-8.
-При отсутствии выбранного memory export `remember_fact` и `/remember`
-возвращают ошибку, поскольку запись не выполнена.
+При отсутствии enabled `remember_fact` `/remember` возвращает ошибку:
+memory action не получает отдельного обходного пути.
 
 `grep` и `find_files` различают пустой результат ripgrep (exit code 1) и
 ошибку поиска (например, неверный regex/glob, exit code 2). Ошибка передаётся
 в tool result с диагностикой; `(no matches)` означает успешный поиск без
 совпадений. Достижение заданного лимита результатов штатно обрывает поиск.
 
-REPL `/remember` не является alias для `remember_fact`: это явная
-direct-user operation с authority выбранного memory slot-а. Она проходит
-top-level execution admission и `memory/v2` cancellation/attribution, но не
-зависит от `tools.enabled` и не получает tool policy/approval semantics.
+REPL и app-server `/remember` вызывают `remember_fact` через top-level tool
+execution admission. Tool должен быть включён; policy/approval, permission mode,
+safety, cancellation, attribution и journal применяются без исключений.
+Например, plan mode запрещает эту запись, как другие `WritesFiles` tools.
+Автоматическое чтение памяти и поиска использует отдельные context provider
+exports, без callbacks или tool execution authority. Их данные возвращаются
+как `ContextChunk`, не извлекаются из human-readable output tools.
 
 Process tool names валидируются при регистрации: пустое имя и duplicate между
 modules отклоняются. Если явно включённый process tool совпал с
@@ -252,8 +256,6 @@ process control plane, но не переносят grants: envelope меняе�
 history адресата, а его tools продолжают проходить собственные registry,
 policy и safety. Fork, прямой peer mesh и writer/worktree spawn в этом режиме
 не реализованы.
-
-Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "apply_patch"` останется `WritesFiles`, даже если config укажет `ReadOnly`. File I/O и shell больше не доступны через `native.handler` — они приходят из process tool modules.
 
 Config-defined `process`, inline stdio `mcp` и discovered
 `tools.mcp_servers` tools также считаются command execution boundary. Даже

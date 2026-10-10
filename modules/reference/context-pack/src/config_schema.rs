@@ -18,6 +18,17 @@ pub fn config_schema(id: &str) -> ModuleConfigSchema {
         "Максимум фрагментов из поиска. 0 отключает поиск.",
         Kind::integer(0),
     )];
+    for (key, title) in [
+        ("search_provider", "Провайдер поиска"),
+        ("memory_provider", "Провайдер памяти"),
+    ] {
+        fields.push(Field::new(
+            key,
+            title,
+            "Id context_provider export. Если не задан, автоматическое чтение отключено.",
+            Kind::text(),
+        ));
+    }
     if id != "simple" {
         let providers = if id == "codex_context" {
             vec![

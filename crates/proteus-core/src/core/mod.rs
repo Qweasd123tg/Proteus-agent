@@ -2,7 +2,6 @@ mod agent_control;
 pub(crate) mod agent_plugins;
 mod approval;
 mod assembly;
-mod bound_memory;
 mod bound_model;
 mod bound_tools;
 mod compaction_host;
@@ -42,7 +41,6 @@ pub use assembly::{
     AssemblyExportPlan, AssemblyExportUse, AssemblyModelPlan, AssemblyModuleSource, AssemblyPlan,
     AssemblySlotPlan, AssemblyToolsPlan, PreparedAssembly, render_assembly_plan,
 };
-pub use bound_memory::BoundMemory;
 pub use bound_model::{BoundModel, ModelExecutionBinding};
 pub use bound_tools::{BoundTools, ToolExecutionBinding};
 pub use config::{

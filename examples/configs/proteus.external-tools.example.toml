@@ -38,8 +38,8 @@ enabled = []
 mode = "normal"
 
 [module_config.policy.ask_write]
-# Core slot facade tools include remember_fact and search.
-# apply_patch, file I/O, git helpers, and shell are component exports when enabled.
+# search, remember_fact, apply_patch, file I/O, git helpers, and shell
+# are component exports when enabled.
 ask_before = ["apply_patch", "remember_fact"]
 allow = ["search"]
 

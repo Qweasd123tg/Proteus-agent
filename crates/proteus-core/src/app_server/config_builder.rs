@@ -422,9 +422,9 @@ mod hook_tests {
         let path = dir.path().join("config.toml");
         let mut config = crate::test_model::config();
         config.modules.hooks = vec!["second".into(), "first".into()];
-        config.modules.search = Some("rg".into());
+        config.modules.context = Some("simple".into());
         persist_config_builder(&path, &config).await.unwrap();
-        config.modules.search = Some("other-search".into());
+        config.modules.context = Some("repo_aware".into());
         persist_config_builder(&path, &config).await.unwrap();
         let saved: toml::Value =
             toml::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
@@ -437,7 +437,7 @@ mod hook_tests {
                 .collect::<Vec<_>>(),
             ["second", "first"]
         );
-        assert_eq!(saved["modules"]["search"].as_str(), Some("other-search"));
+        assert_eq!(saved["modules"]["context"].as_str(), Some("repo_aware"));
         config.modules.hooks.clear();
         persist_config_builder(&path, &config).await.unwrap();
         let saved: toml::Value =

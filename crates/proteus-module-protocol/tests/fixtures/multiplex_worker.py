@@ -180,7 +180,7 @@ class Worker:
         params = invocation.request.get("params")
         export = params.get("export") if isinstance(params, dict) else None
         slot = export.get("slot") if isinstance(export, dict) else None
-        return "host.search.query" if slot == "context" else "host.context.build"
+        return "host.context.provide" if slot == "context" else "host.context.build"
 
     def _callback_params(
         self,

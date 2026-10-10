@@ -3,37 +3,27 @@
 //! `proteus-core` не зависит от `rusqlite`; backend исполняется во внешнем
 //! worker process.
 //!
-//! Регистрируется под id `"sqlite"`.
+//! Экспорты `tool/sqlite_memory` и `context_provider/sqlite_memory`.
 //!
-//! Путь к базе задаётся `module_config.memory.sqlite.path`; без него worker
+//! Путь к базе задаётся config активного export; без него worker
 //! использует `.proteus/memory.sqlite` относительно своего `cwd`.
 
-use std::{path::PathBuf, sync::Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::{Context, Result, anyhow};
-use proteus_contracts::process_module::{
-    MemoryModule, MemoryModuleHost, MemoryModuleObject, ModuleRegistry, ProcessModuleError,
+use proteus_contracts::{
+    domain::{MemoryItem, MemoryQuery},
+    process_module::{ModuleRegistry, ProcessModuleError},
 };
 use rusqlite::{Connection, OpenFlags, params};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 
-/// Копия `MemoryItem` / `MemoryQuery` из `proteus-contracts::domain`.
-/// Process contract передаёт эти значения как JSON, поэтому worker-side
-/// реализация разбирает локальную wire-форму вручную.
-#[derive(Serialize, Deserialize)]
-struct ItemWire {
-    kind: String,
-    content: String,
-    #[serde(default)]
-    metadata: Value,
-}
-
-#[derive(Serialize, Deserialize)]
-struct QueryWire {
-    text: String,
-    limit: usize,
-}
+mod provider;
+mod tools;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -107,36 +97,24 @@ impl SqliteMemoryStore {
     }
 }
 
-impl MemoryModule for SqliteMemoryStore {
-    fn remember_json(
-        &self,
-        item_json: String,
-        _context_json: String,
-        _host: &mut dyn MemoryModuleHost,
-    ) -> Result<(), ProcessModuleError> {
-        let payload = item_json;
-        match remember_impl(&self.conn, &payload) {
-            Ok(()) => Ok(()),
-            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
-        }
+impl SqliteMemoryStore {
+    fn remember(&self, item: &MemoryItem) -> Result<(), ProcessModuleError> {
+        let payload = serde_json::to_string(item)
+            .map_err(|error| ProcessModuleError::new(error.to_string()))?;
+        remember_impl(&self.conn, &payload)
+            .map_err(|error| ProcessModuleError::new(format!("{error:#}")))
     }
-
-    fn recall_json(
-        &self,
-        query_json: String,
-        _context_json: String,
-        _host: &mut dyn MemoryModuleHost,
-    ) -> Result<String, ProcessModuleError> {
-        let payload = query_json;
-        match recall_impl(&self.conn, &payload) {
-            Ok(body) => Ok(String::from(body)),
-            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
-        }
+    fn recall(&self, query: &MemoryQuery) -> Result<Vec<MemoryItem>, ProcessModuleError> {
+        let payload = serde_json::to_string(query)
+            .map_err(|error| ProcessModuleError::new(error.to_string()))?;
+        let body = recall_impl(&self.conn, &payload)
+            .map_err(|error| ProcessModuleError::new(format!("{error:#}")))?;
+        serde_json::from_str(&body).map_err(|error| ProcessModuleError::new(error.to_string()))
     }
 }
 
 fn remember_impl(conn: &Mutex<Connection>, payload: &str) -> Result<()> {
-    let item: ItemWire =
+    let item: MemoryItem =
         serde_json::from_str(payload).with_context(|| "failed to deserialize MemoryItem JSON")?;
     let created_at = chrono::Utc::now().timestamp_millis();
     let c = conn.lock().map_err(|_| anyhow!("sqlite mutex poisoned"))?;
@@ -154,7 +132,7 @@ fn remember_impl(conn: &Mutex<Connection>, payload: &str) -> Result<()> {
 }
 
 fn recall_impl(conn: &Mutex<Connection>, payload: &str) -> Result<String> {
-    let query: QueryWire =
+    let query: MemoryQuery =
         serde_json::from_str(payload).with_context(|| "failed to deserialize MemoryQuery JSON")?;
     if query.limit == 0 {
         return Ok("[]".to_owned());
@@ -163,7 +141,7 @@ fn recall_impl(conn: &Mutex<Connection>, payload: &str) -> Result<String> {
     let c = conn.lock().map_err(|_| anyhow!("sqlite mutex poisoned"))?;
 
     let match_expr = fts_match_expression(&query.text);
-    let items: Vec<ItemWire> = if match_expr.is_empty() {
+    let items: Vec<MemoryItem> = if match_expr.is_empty() {
         let mut stmt = c.prepare(
             "SELECT kind, content, metadata FROM memory_items ORDER BY id DESC LIMIT ?1",
         )?;
@@ -184,18 +162,14 @@ fn recall_impl(conn: &Mutex<Connection>, payload: &str) -> Result<String> {
     Ok(serde_json::to_string(&items)?)
 }
 
-fn row_to_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<ItemWire> {
+fn row_to_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryItem> {
     let kind: String = row.get(0)?;
     let content: String = row.get(1)?;
     let metadata_json: String = row.get(2)?;
     let metadata: Value = serde_json::from_str(&metadata_json).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(error))
     })?;
-    Ok(ItemWire {
-        kind,
-        content,
-        metadata,
-    })
+    Ok(MemoryItem::new(kind, content, metadata))
 }
 
 fn fts_match_expression(text: &str) -> String {
@@ -231,11 +205,19 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
             )));
         }
     };
-    let obj: MemoryModuleObject = Box::new(store);
-    if let Err(err) = registry.register_memory(String::from("sqlite"), obj) {
-        return Err(err);
-    }
-    Ok(())
+    let store = Arc::new(store);
+    registry.register_tool(Box::new(tools::MemoryTool {
+        store: store.clone(),
+        remember: true,
+    }))?;
+    registry.register_tool(Box::new(tools::MemoryTool {
+        store: store.clone(),
+        remember: false,
+    }))?;
+    registry.register_context_provider(
+        "sqlite_memory".into(),
+        Box::new(provider::MemoryProvider { store }),
+    )
 }
 
 #[cfg(test)]
@@ -263,7 +245,7 @@ mod tests {
         .expect("remember fact");
 
         let payload = recall_impl(&conn, r#"{"text":"dark","limit":5}"#).expect("recall");
-        let items: Vec<ItemWire> = serde_json::from_str(&payload).expect("items");
+        let items: Vec<MemoryItem> = serde_json::from_str(&payload).expect("items");
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].kind, "preference");
@@ -298,7 +280,7 @@ mod tests {
         .expect("second");
 
         let payload = recall_impl(&conn, r#"{"text":"","limit":2}"#).expect("recall");
-        let items: Vec<ItemWire> = serde_json::from_str(&payload).expect("items");
+        let items: Vec<MemoryItem> = serde_json::from_str(&payload).expect("items");
 
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].content, "second");
@@ -319,7 +301,7 @@ mod tests {
                 &serde_json::json!({ "text": text, "limit": 0 }).to_string(),
             )
             .unwrap();
-            let items: Vec<ItemWire> = serde_json::from_str(&payload).unwrap();
+            let items: Vec<MemoryItem> = serde_json::from_str(&payload).unwrap();
             assert!(items.is_empty());
         }
     }

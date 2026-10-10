@@ -1,7 +1,9 @@
 use std::{path::PathBuf, sync::mpsc, thread, time::Duration};
 
 use anyhow::{Result, ensure};
-use proteus_contracts::contracts::{PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD};
+use proteus_contracts::contracts::{
+    PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION, PROCESS_CONTEXT_PROVIDER_METHOD,
+};
 use proteus_process_host::{NewlineJsonFraming, ProcessSpec, ProcessTransport};
 use serde_json::{Value, json};
 
@@ -20,9 +22,9 @@ fn cancel_tree_defers_admission_failure_and_next_generation_remains_usable() -> 
     let binding = ProcessComponentBinding::new(
         "cancel-tree",
         [ProcessExportBinding::new(
-            "search",
+            "context_provider",
             "fixture.search",
-            PROCESS_SEARCH_CONTRACT_VERSION,
+            PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
             json!({}),
         )?],
     )?;
@@ -199,7 +201,7 @@ fn pending(
                 depth: usize::from(parent.is_some()),
                 deadline: Instant::now() + Duration::from_secs(3),
             },
-            method: PROCESS_SEARCH_METHOD.into(),
+            method: PROCESS_CONTEXT_PROVIDER_METHOD.into(),
             params: Some(params),
             authority: *export.authority()?,
             dispatcher: std::sync::Arc::new(NoAsyncHostRequests),

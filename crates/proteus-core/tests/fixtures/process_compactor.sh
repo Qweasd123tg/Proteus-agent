@@ -16,7 +16,7 @@ if [ "$mode" = "slow_initialize" ]; then
     sleep 0.4
 fi
 if [ "$mode" = "mismatch" ]; then
-    slot=search
+    slot=context
 else
     slot=compactor
 fi

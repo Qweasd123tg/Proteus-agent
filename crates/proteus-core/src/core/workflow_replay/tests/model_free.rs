@@ -4,8 +4,7 @@ use super::{
 };
 use crate::{
     contracts::{
-        CompactionInput, ContextBuildInput, MemoryInvocationContext, ModelCallOrigin,
-        ToolExposureInput, ToolExposureRequest,
+        CompactionInput, ContextBuildInput, ModelCallOrigin, ToolExposureInput, ToolExposureRequest,
     },
     core::RuntimeCompactionHost,
 };
@@ -46,16 +45,12 @@ impl Workflow for Probe {
             Self::Context => {
                 let input = ContextBuildInput::new(
                     task,
-                    ctx.execution.search.clone(),
-                    ctx.execution.memory.clone(),
-                    MemoryInvocationContext::new(
-                        ExecutionAttribution::for_turn(
-                            new_execution_id(),
-                            ctx.session_id,
-                            ctx.thread_id,
-                            ctx.turn_id,
-                        ),
-                        CancellationToken::new(),
+                    ctx.execution.scope.clone(),
+                    ExecutionAttribution::for_turn(
+                        ctx.execution.scope.execution_id,
+                        ctx.session_id,
+                        ctx.thread_id,
+                        ctx.turn_id,
                     ),
                 );
                 let _ = ctx.context.build(input).await;

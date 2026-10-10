@@ -7,8 +7,8 @@ mod config_schemas;
 use crate::{
     contracts::{
         AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
-        ExecutionContext, HistoryCompactor, MemoryStore, Model, SearchBackend, ToolExposure,
-        ToolRegistry, UserInputTransport, Workflow,
+        ExecutionContext, HistoryCompactor, Model, ToolExposure, ToolRegistry, UserInputTransport,
+        Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, BoundModel, ModeAwarePolicy,
@@ -16,10 +16,7 @@ use crate::{
         PreparedAssembly,
     },
     domain::{ModelRef, ReasoningConfig, SessionId, ThreadId, TurnId},
-    stubs::{
-        DenyAllPolicy, EmptyContextBuilder, NoCompactor, NoMemory, NoWorkflow, NullSearch,
-        UnfilteredToolExposure,
-    },
+    stubs::{DenyAllPolicy, EmptyContextBuilder, NoCompactor, NoWorkflow, UnfilteredToolExposure},
 };
 
 #[derive(Clone)]
@@ -31,8 +28,6 @@ pub struct RuntimeRegistry {
     pub runtime_config: crate::core::RuntimeConfig,
     pub instructions: Vec<crate::model_standard::InstructionBlock>,
     model_service: Option<Arc<ModelService>>,
-    pub search: Arc<dyn SearchBackend>,
-    pub memory: Arc<dyn MemoryStore>,
     pub context: Arc<dyn ContextBuilder>,
     pub tools: ToolRegistry,
     pub(crate) process_tool_specs: Vec<(crate::contracts::ToolSource, crate::domain::ToolSpec)>,
@@ -109,15 +104,6 @@ impl RuntimeRegistry {
             })
             .transpose()?;
 
-        let search: Arc<dyn SearchBackend> = match plan.module_id(crate::domain::ModuleKind::Search)
-        {
-            Some(id) => catalog.build_search(id, &build_ctx)?,
-            None => Arc::new(NullSearch),
-        };
-        let memory: Arc<dyn MemoryStore> = match plan.module_id(crate::domain::ModuleKind::Memory) {
-            Some(id) => catalog.build_memory(id, &build_ctx)?,
-            None => Arc::new(NoMemory),
-        };
         let context: Arc<dyn ContextBuilder> =
             match plan.module_id(crate::domain::ModuleKind::Context) {
                 Some(id) => catalog.build_context(id, &build_ctx)?,
@@ -135,13 +121,7 @@ impl RuntimeRegistry {
             };
         let agent_control_runtime = AgentControlRuntime::from_config(&config.agent_control)?;
         let agent_control = agent_control_runtime.service();
-        let surface = catalog.build_tools(
-            &build_ctx,
-            search.clone(),
-            memory.clone(),
-            &addons.skills,
-            &addons.servers,
-        )?;
+        let surface = catalog.build_tools(&build_ctx, &addons.skills, &addons.servers)?;
         let mut tools = surface.tools;
         agent_control_runtime.register_tools(&mut tools, config.runtime.workflow_timeout_ms)?;
         if let (Some(service), Some(config)) = (&model_service, &model_config) {
@@ -171,8 +151,6 @@ impl RuntimeRegistry {
             runtime_config: config.runtime.clone(),
             instructions: config.instruction_blocks(),
             model_service,
-            search,
-            memory,
             context,
             tools,
             process_tool_specs: surface.process_tool_specs,
@@ -237,8 +215,6 @@ impl RuntimeRegistry {
             scope,
             self.runtime_config.model_timeout_ms,
             model,
-            self.search.clone(),
-            self.memory.clone(),
             selected_tools,
             policy,
             approval,

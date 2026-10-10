@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free process SearchBackend example for Proteus.
+"""Dependency-free search tool and context provider example for Proteus.
 
 The module speaks JSON-RPC 2.0 as one compact JSON object per stdout line and
 uses ripgrep only as its search engine. Python is an example implementation
@@ -25,9 +25,9 @@ from component_runtime import (  # noqa: E402
     run_component,
 )
 
-SLOT = "search"
 MODULE_ID = "python_rg"
-CONTRACT_VERSION = "v2"
+CONTRACTS = {"tool": "v5", "context_provider": "v4"}
+active_exports: list[dict[str, Any]] = []
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -62,6 +62,7 @@ def require_string_list(value: Any, label: str) -> list[str]:
 
 
 def validate_initialize(params: Any) -> str:
+    global active_exports
     params = require_object(params, INITIALIZE_FIELDS, "initialize params")
     if params["protocol_version"] != PROTOCOL_VERSION:
         raise ProtocolError(f"unsupported component protocol: {params['protocol_version']!r}")
@@ -69,32 +70,26 @@ def validate_initialize(params: Any) -> str:
     if not isinstance(component_id, str) or not component_id.strip():
         raise ProtocolError("initialize component_id must be a non-empty string")
     exports = params["exports"]
-    if not isinstance(exports, list) or len(exports) != 1:
-        raise ProtocolError("python search component requires exactly one export")
-    export = require_object(
-        exports[0], EXPORT_INITIALIZE_FIELDS, "initialize export"
-    )
-    expected_identity = (
-        SLOT,
-        MODULE_ID,
-        CONTRACT_VERSION,
-        "select_one",
-    )
-    actual_identity = (
-        export["slot"],
-        export["module_id"],
-        export["contract_version"],
-        export["composition"],
-    )
-    if actual_identity != expected_identity:
-        raise ProtocolError(f"unsupported initialize export: {export!r}")
-    if not isinstance(export["module_config"], dict):
-        raise ProtocolError("initialize module_config must be an object")
-    host_features = require_string_list(
-        export["host_features"], "initialize host_features"
-    )
-    if host_features:
-        raise ProtocolError(f"unsupported host features: {host_features!r}")
+    if not isinstance(exports, list) or not exports:
+        raise ProtocolError("python search component requires explicit exports")
+    admitted = []
+    for value in exports:
+        export = require_object(value, EXPORT_INITIALIZE_FIELDS, "initialize export")
+        slot = export["slot"]
+        if (slot not in CONTRACTS or export["module_id"] != MODULE_ID
+                or export["contract_version"] != CONTRACTS[slot]
+                or export["composition"] != "ordered_many"):
+            raise ProtocolError(f"unsupported initialize export: {export!r}")
+        if any(entry["slot"] == slot for entry in admitted):
+            raise ProtocolError(f"duplicate export: {slot}")
+        if not isinstance(export["module_config"], dict):
+            raise ProtocolError("initialize module_config must be an object")
+        if require_string_list(export["host_features"], "initialize host_features"):
+            raise ProtocolError("search exports do not use host features")
+        admitted.append({"slot": slot, "module_id": MODULE_ID,
+                         "contract_version": CONTRACTS[slot], "composition": "ordered_many",
+                         "module_features": [], "config_schema": None})
+    active_exports = admitted
     return component_id
 
 
@@ -177,11 +172,11 @@ def stop_process(process: subprocess.Popen[str]) -> None:
         active_rg.discard(process)
 
 
-def search(query: dict[str, Any], context: InvocationContext) -> dict[str, Any]:
+def search(query: dict[str, Any], context: InvocationContext) -> list[dict[str, Any]]:
     text = query["text"]
     max_results = query["max_results"]
     if not text.strip() or max_results == 0:
-        return {"chunks": []}
+        return []
 
     command = [
         "rg",
@@ -252,7 +247,7 @@ def search(query: dict[str, Any], context: InvocationContext) -> dict[str, Any]:
         context.ensure_active()
         if status not in (0, 1):
             raise RuntimeError(f"ripgrep exited with status {status}")
-    return {"chunks": chunks}
+    return chunks
 
 
 def initialize(params: Any) -> dict[str, Any]:
@@ -260,24 +255,54 @@ def initialize(params: Any) -> dict[str, Any]:
     return {
         "protocol_version": PROTOCOL_VERSION,
         "component_id": component_id,
-        "exports": [
-            {
-                "slot": SLOT,
-                "module_id": MODULE_ID,
-                "contract_version": CONTRACT_VERSION,
-                "composition": "select_one",
-                "module_features": [], "config_schema": None,
-            }
-        ],
+        "exports": active_exports,
     }
 
 
 def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, Any]:
-    if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
+    slot = context.export.get("slot")
+    if not any(context.export == {"slot": entry["slot"], "module_id": MODULE_ID}
+               for entry in active_exports):
         raise ProtocolError(f"unknown component export: {context.export!r}")
-    if method != "search":
-        raise ProtocolError(f"unknown method: {method}")
-    return search(validate_query(params), context)
+    if slot == "context_provider":
+        if method == "catalog":
+            return {"result": None}
+        if method != "provide":
+            raise ProtocolError(f"unknown provider method: {method}")
+        request = require_object(params, {"input", "attribution", "skills"}, "provider request")
+        require_object(request["attribution"], {"execution_id", "agent"}, "attribution")
+        source = require_object(request["input"], {"provider_id", "task", "metadata"}, "provider input")
+        if source["provider_id"] != MODULE_ID:
+            raise ProtocolError("provider_id must select python_rg")
+        return {"result": search(validate_query(source["metadata"]), context)}
+    if method == "list":
+        return {"result": [{"spec": {
+            "name": "search", "description": "Search workspace text with ripgrep",
+            "input_schema": {"type": "object", "properties": {
+                "query": {"type": "string"}, "max_results": {"type": "integer", "minimum": 0},
+                "use_case": {"type": "string"},
+                "starts_with": {"type": "array", "items": {"type": "string"}},
+                "ends_with": {"type": "array", "items": {"type": "string"}},
+            }, "required": ["query"]},
+            "surface": {"kind": "function", "strict": False, "output_schema": None},
+            "safety": "ReadOnly", "supports_parallel_tool_calls": True,
+            "timeout_ms": 60000, "metadata": {"hot": True, "category": "search"},
+        }, "model_visible": True, "user_command": None}]}
+    if method != "invoke":
+        raise ProtocolError(f"unknown tool method: {method}")
+    request = require_object(params, {"call", "cwd", "attribution", "skills"}, "tool request")
+    require_object(request["attribution"], {"execution_id", "agent"}, "attribution")
+    call = require_object(request["call"], {"id", "name", "args", "surface", "raw_arguments"}, "ToolCall")
+    if call["name"] != "search" or call["surface"] != "function" or not isinstance(call["args"], dict):
+        raise ProtocolError("expected search function call")
+    args = call["args"]
+    query = validate_query({"text": args.get("query"), "cwd": request["cwd"],
+                            "max_results": args.get("max_results", 20), "use_case": args.get("use_case"),
+                            "starts_with": args.get("starts_with", []), "ends_with": args.get("ends_with", [])})
+    chunks = search(query, context)
+    output = "\n".join(f"{chunk['path']}:{chunk['metadata']['line']}: {chunk['content'].strip()}" for chunk in chunks)
+    return {"result": {"call_id": call["id"], "ok": True, "output": output or "(no matches)",
+                       "content": [], "error": None, "metadata": {"results": len(chunks), "chunks": chunks}}}
 
 
 def terminate_from_signal(_signum: int, _frame: Any) -> None:

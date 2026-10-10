@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SimpleContextConfig {
+    #[serde(default)]
+    pub(crate) search_provider: Option<String>,
+    #[serde(default)]
+    pub(crate) memory_provider: Option<String>,
     #[serde(default = "default_max_context_search_results")]
     pub(crate) max_search_results: usize,
 }
@@ -10,6 +14,8 @@ pub(crate) struct SimpleContextConfig {
 impl Default for SimpleContextConfig {
     fn default() -> Self {
         Self {
+            search_provider: None,
+            memory_provider: None,
             max_search_results: default_max_context_search_results(),
         }
     }
@@ -18,6 +24,10 @@ impl Default for SimpleContextConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RepoAwareContextConfig {
+    #[serde(default)]
+    pub(crate) search_provider: Option<String>,
+    #[serde(default)]
+    pub(crate) memory_provider: Option<String>,
     #[serde(default = "default_repo_aware_providers")]
     pub(crate) providers: Vec<String>,
     #[serde(default = "default_repo_aware_max_context_bytes")]
@@ -43,6 +53,8 @@ pub(crate) struct RepoAwareContextConfig {
 impl Default for RepoAwareContextConfig {
     fn default() -> Self {
         Self {
+            search_provider: None,
+            memory_provider: None,
             providers: default_repo_aware_providers(),
             max_context_bytes: default_repo_aware_max_context_bytes(),
             max_bytes_per_file: default_repo_aware_max_bytes_per_file(),
@@ -60,6 +72,10 @@ impl Default for RepoAwareContextConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CodexContextConfig {
+    #[serde(default)]
+    pub(crate) search_provider: Option<String>,
+    #[serde(default)]
+    pub(crate) memory_provider: Option<String>,
     #[serde(default = "default_codex_context_providers")]
     pub(crate) providers: Vec<String>,
     #[serde(default = "default_codex_context_max_context_bytes")]
@@ -89,6 +105,8 @@ pub(crate) struct CodexContextConfig {
 impl Default for CodexContextConfig {
     fn default() -> Self {
         Self {
+            search_provider: None,
+            memory_provider: None,
             providers: default_codex_context_providers(),
             max_context_bytes: default_codex_context_max_context_bytes(),
             max_bytes_per_file: default_codex_context_max_bytes_per_file(),
@@ -108,6 +126,8 @@ impl Default for CodexContextConfig {
 impl From<&CodexContextConfig> for RepoAwareContextConfig {
     fn from(config: &CodexContextConfig) -> Self {
         Self {
+            search_provider: config.search_provider.clone(),
+            memory_provider: config.memory_provider.clone(),
             providers: config.providers.clone(),
             max_context_bytes: config.max_context_bytes,
             max_bytes_per_file: config.max_bytes_per_file,

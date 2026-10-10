@@ -273,7 +273,7 @@ proteus --config context-search-chatgpt
 ```
 
 Он подгружает project instructions, skills, environment и до 8 результатов
-поиска по словам текущей задачи через выбранный `search` slot. Общий бюджет
+поиска по словам текущей задачи через указанный `context_provider/rg_search`. Общий бюджет
 контекста — 60000 bytes; model limits, capabilities, effort, workflow, tools
 и конфигурация peers наследуются без изменения. Это отдельная сборка для
 экспериментов, а не заявление о Codex parity: `repo_aware` также добавляет task
@@ -434,13 +434,11 @@ child profiles; запуск parent по явному пути не подхва
 
 ## Выбор Behavior Modules
 
-`[modules]` имеет семь optional keys:
+`[modules]` имеет пять optional selection keys (ordered hooks задаются отдельно):
 
 ```toml
 [modules]
 workflow = "coding.single_loop"
-search = "rg"
-memory = "sqlite"
 context = "repo_aware"
 policy = "ask_write"
 compactor = "codex"
@@ -466,6 +464,14 @@ Reference context implementations `simple`, `repo_aware` и `codex_context`
 инициализации модуля. В `repo_aware` и `codex_context` нулевой `memory_limit`
 исключает результаты памяти, а `max_search_results = 0` отключает
 предварительный поиск.
+
+Автоматическое чтение требует явных `search_provider` / `memory_provider` —
+ids объявленных context provider exports. Без id соответствующее чтение
+отключено; простого включения tool недостаточно. В packaged profiles поиск
+привязан к `rg_search`, а автоматическая память включается только там, где
+явно задан `memory_provider`. Provider получает structured query в opaque
+metadata, host-owned attribution/settings и cancellation текущей execution.
+Context builder не вызывает tools и не получает права записи памяти.
 
 `module_config.context.codex_context.project_doc_max_bytes` по умолчанию равен
 `32768`: это общий бюджет исходных байтов проектных инструкций от корня до cwd.
@@ -524,9 +530,12 @@ env = { SEARCH_MODE = "local" }
 handshake_timeout_ms = 30000
 description = "Python ripgrep example"
 
-[components.python-search.exports.search.python_rg]
+[components.python-search.exports.tool.python_rg]
 timeout_ms = 60000
 description = "Python ripgrep export"
+
+[components.python-search.exports.context_provider.python_rg]
+timeout_ms = 60000
 ```
 
 Поля component:
@@ -557,9 +566,9 @@ Launch config не принимает вложенный module `config`.
 Module-owned config:
 
 ```toml
-[module_config.search.python_rg]
-roots = ["src", "crates"]
-max_results = 50
+[module_config.context.repo_aware]
+search_provider = "python_rg"
+max_search_results = 50
 ```
 
 Core требует object, но не интерпретирует его поля. Object соответствующего
@@ -641,18 +650,44 @@ Tool export получает список specs с bootstrap timeout 30 000 мс
 model:            fake, openai, openai_compatible, openai_codex, anthropic
 workflow:         coding.single_loop, coding.codex_loop,
                   coding.plan_execute_review, coding.project_check
-search:           rg
-memory:           jsonl, sqlite
 context:          simple, repo_aware, codex_context
-context_provider: skills
+context_provider: skills, rg_search, jsonl_memory, sqlite_memory
 policy:           allow_all, ask_write, codex_policy, opencode_policy
 compactor:        codex
 tool_exposure:    codex_dynamic
-tool:             reference.tools и узкие selectors, direct_patch, codex_patch
+tool:             reference.tools и узкие selectors, direct_patch, codex_patch,
+                  rg_search, jsonl_memory, sqlite_memory
 ```
 
 Это reference/test inventory, не обязательный пакет. Любой другой executable,
 прошедший тот же contract, настраивается тем же способом.
+
+`tool/rg_search` предоставляет `search`, а `tool/jsonl_memory` либо
+`tool/sqlite_memory` — `remember_fact` и `recall_memory`. Эти exports не входят
+в `reference.tools`; нужные имена включаются через `tools.enabled`. Подключайте
+одну реализацию для каждого имени tool. `/remember` требует enabled
+`remember_fact` и проходит тот же policy/approval path.
+
+Одноимённые `context_provider` exports добавляют результаты автоматического
+чтения; они не зависят от `tools.enabled` и не вызывают tools. Каждый export
+получает отдельный config. Для общего хранилища задайте одинаковый `path`:
+
+```toml
+[components.reference-capabilities.exports.tool.sqlite_memory]
+[components.reference-capabilities.exports.context_provider.sqlite_memory]
+
+[module_config.tool.sqlite_memory]
+path = ".proteus/memory.sqlite"
+
+[module_config.context_provider.sqlite_memory]
+path = ".proteus/memory.sqlite"
+
+[module_config.context.repo_aware]
+memory_provider = "sqlite_memory"
+```
+
+JSONL использует первые substring-совпадения, SQLite — FTS. Алгоритм поиска,
+storage и их параметры принадлежат implementation, а не Core.
 
 Codex-family fragments подключают exact tool export
 `components.reference-capabilities.exports.tool.codex_patch`; остальные packaged
@@ -718,7 +753,7 @@ disabled_mcp_servers = ["team.tools:database"]
 
 Отключённый skill отсутствует в доступном модели списке и не загружается
 инструментом `skill`. Каталог управления сохраняет его описание и состояние.
-Core не читает `SKILL.md`: любой `context_provider/v3` может предоставить
+Core не читает `SKILL.md`: любой `context_provider/v4` может предоставить
 typed skill catalog, либо вернуть `null`, если не поддерживает эту возможность.
 Одинаковые host-owned `SkillRuntimeSettings` передаются context provider и
 `tool/v5`; в reference skill-pack один фильтр используется для списка и загрузки.
@@ -794,9 +829,9 @@ enabled = [
 
 Имена должны существовать в одном из sources:
 
-- core facade tools: `search`, `remember_fact`,
-  `request_user_input`;
-- объявленные component tool exports, включая `apply_patch`;
+- core facade tools: `request_user_input` / `AskUserQuestion`;
+- объявленные component tool exports, включая `apply_patch`, `search`,
+  `remember_fact` и `recall_memory`;
 - `[[tools.configured]]`;
 - discovered `[[tools.mcp_servers]]`;
 - provider-hosted tools.
@@ -824,8 +859,7 @@ env = { MODE = "check" }
 ```
 
 Configured tool — отдельная tool execution surface, не behavior module.
-`native` executor разрешён только для существующих core handlers и не может
-понизить их safety.
+Executor имеет kind `process` или `mcp`; native handlers отсутствуют.
 
 `supports_parallel_tool_calls` по умолчанию `false`: вызов ждёт предыдущие
 tools и удерживает следующие до завершения. Значение `true` разрешает совместное

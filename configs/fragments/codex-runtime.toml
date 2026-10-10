@@ -14,7 +14,6 @@ priority = 100
 
 [modules]
 workflow = "coding.codex_loop"
-search = "rg"
 context = "codex_context"
 policy = "codex_policy"
 compactor = "codex"
@@ -37,7 +36,11 @@ command = "proteus-reference-module"
 command = "proteus-reference-module"
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
-[components.reference-capabilities.exports.search.rg]
+[components.reference-capabilities.exports.tool.rg_search]
+
+[components.reference-capabilities.exports.context_provider.rg_search]
+
+[components.reference-capabilities.exports.tool.jsonl_memory]
 
 [components.reference-capabilities.exports.context_provider.skills]
 
@@ -102,6 +105,7 @@ timeout_ms = 14400000
 max_summary_bytes = 8192
 
 [module_config.context.codex_context]
+search_provider = "rg_search"
 max_context_bytes = 60000
 max_bytes_per_file = 12000
 project_doc_max_bytes = 32768

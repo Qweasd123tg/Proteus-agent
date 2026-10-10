@@ -10,9 +10,9 @@ pub(crate) fn describe(slot: &str, id: &str, config: &Value) -> Option<ModuleCon
         "tool_exposure" => codex_tool_exposure::config_schema(),
         "policy" => policy_pack::config_schema(id),
         "hook" => hook_pack::config_schema(id),
-        "memory" if id == "jsonl" => memory_pack::config_schema(),
-        "memory" if id == "sqlite" => sqlite_memory::config_schema(),
-        "search" => ModuleConfigSchema::default(),
+        "tool" | "context_provider" if id == "jsonl_memory" => memory_pack::config_schema(),
+        "tool" | "context_provider" if id == "sqlite_memory" => sqlite_memory::config_schema(),
+        "tool" | "context_provider" if id == "rg_search" => ModuleConfigSchema::default(),
         _ => return None,
     })
 }

@@ -67,7 +67,7 @@ WorkflowHostRuntime
           +--> Model / Context / Compactor
           +--> ToolOrchestrator (agent adapter) -> BoundTools
           |                                      `-> ToolRegistry / Policy / Approval / Tool
-          +--> Search / Memory / Patch / AgentControl
+          +--> Context Providers / AgentControl
           |
           v
 process adapters -> ComponentBroker -> InvocationRef tree
@@ -366,15 +366,16 @@ implementations отсутствуют в replay-каталоге, итог и h
 
 | Owner | Поля |
 |---|---|
-| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `permission_grants` |
+| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `tools`, `policy`, `approval`, `permission_grants` |
 | `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `intent`, `permission_mode`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, queued messages, `thread_label` |
 
 `ExecutionScope` содержит identity и cancellation без chat types.
 `ExecutionContext` связывает generic handles с coherent runtime snapshot.
 `AgentWorkflowContext` добавляет conversational identity и services.
 
-`ContextBuilder` требует `AgentTask`. SearchBackend, MemoryStore и
-ApprovalPolicy такого требования не имеют. Immutable `BoundTools` владеет
+`ContextBuilder` требует `AgentTask`, execution scope и attribution, но не
+conversation или model call. Поиск и память предоставляются tools и context
+providers, не отдельными Core services. Immutable `BoundTools` владеет
 registry/schema/policy/approval/grants/cancellation/recording и вызовом tools.
 Его `execute(cwd, call)` не принимает chat context. `ToolOrchestrator`
 добавляет agent presentation, user input, task и AgentControl.
@@ -436,7 +437,7 @@ InvocationRef не взаимозаменяемы; broker lineage не пере�
 | Model Context | Один `CanonicalModelRequest` после context/tool exposure/compaction/shaping | Не durable conversation целиком |
 | Journal | Canonical append-only turn/history/model/tool facts | Не event stream и не program counter |
 | Runtime State | Live services, session locks/history/steering, cancellation, grants, broker generations | Не автоматически durable state |
-| Memory | Отдельный `MemoryStore::remember/recall` capability | Не chat history и не generic checkpoint store |
+| Memory | Module-owned durable storage с tools записи/чтения и optional context provider | Не chat history и не generic checkpoint store |
 | `RuntimeSnapshot` | Coherent assembly/config/registry snapshot для хода | Не continuation snapshot вычисления |
 
 Prompt replay повторяет один сохранённый provider-neutral model request;
@@ -463,7 +464,6 @@ AgentRuntime предоставляет typed non-Turn операции и вл�
 AgentRuntime
   -> private atomic admission: RuntimeSnapshot + effective settings + ExecutionScope
   -> execute_tool -> BoundTools
-  -> remember     -> BoundMemory
 ```
 
 Turn и non-Turn используют один capture primitive под
@@ -481,17 +481,14 @@ facts записываются с execution id и без chat ids. При cancel
 BoundTools отменяет child token и ограниченное время продолжает polling,
 чтобы process adapter доставил targeted protocol cancel.
 
-Slash-команда `/remember` вызывает
-`AgentRuntime::remember(item, cancellation)`. Admission фиксирует selected
-MemoryStore, scope и BoundMemory. MemoryInvocationContext передаёт
-обязательную attribution через strict memory/v2; host token управляет cancel.
+Slash-команда `/remember` вызывает enabled `remember_fact` через
+`AgentRuntime::execute_tool`. Существующий app-server payload не меняется;
+операция теперь использует ту же tool authority, policy/approval, safety,
+cancellation и canonical tool facts, что и явный вызов tool. Без зарегистрированного
+`remember_fact` или при запрете записи операция завершается ошибкой. Durable
+storage и retrieval algorithm принадлежат implementation, не Core.
 
-Direct-user memory operation использует authority memory slot и не зависит
-от optional tool remember_fact. Вызов remember_fact остаётся отдельным
-tool path с policy/approval. Durable запись принадлежит MemoryStore;
-direct memory action не создаёт ToolCall или memory journal fact.
-
-Non-Turn tool/memory operations могут идти параллельно с Turn и друг с другом.
+Non-Turn tool operations могут идти параллельно с Turn и друг с другом.
 Scope/grants/recorders раздельны; SessionStore сериализует append writer lock.
 Exports одного component сохраняют shared process failure domain.
 Адресный cancel одной execution не отменяет sibling или Turn.
@@ -525,7 +522,7 @@ Exports одного component сохраняют shared process failure domain.
 composition(contract) = select_one | ordered_many
 ```
 
-`workflow`, `search`, `memory`, `context`, `policy`,
+`workflow`, `model`, `context`, `policy`,
 `compactor` и `tool_exposure` используют `select_one`.
 `tool`, `context_provider` и цепочка обработчиков `hook/v4` используют `ordered_many`.
 `modules.hooks` задаёт порядок обработчиков. Core определяет точки их вызова
@@ -538,15 +535,23 @@ composition(contract) = select_one | ordered_many
 
 ```toml
 [modules]
-search = "rg"
+context = "simple"
+
+[tools]
+enabled = ["search"]
 
 [components.reference-capabilities]
 command = "proteus-reference-module"
 
-[components.reference-capabilities.exports.search.rg]
+[components.reference-capabilities.exports.tool.rg_search]
 
-[module_config.search.rg]
-max_results = 50
+[components.reference-capabilities.exports.context_provider.rg_search]
+
+[components.reference-capabilities.exports.context.simple]
+
+[module_config.context.simple]
+search_provider = "rg_search"
+max_search_results = 50
 ```
 
 `ModuleCatalog::from_config`:

@@ -7,15 +7,16 @@
 
 - Process-only Component Runtime v2 / wire v3: persistent multi-export
   components, concurrent invocation, callbacks, cancellation и restart.
-- Slots для workflow, search, memory, context/context providers, policy,
-  patch, compactor, tool exposure, tools и model.
+- Slots для workflow, context/context providers, policy, compactor,
+  tool exposure, tools, hooks и model. Поиск, память и patch — process tools;
+  автоматическое чтение поиска/памяти — context providers.
 - AssemblyPlan, атомарный runtime snapshot и ExecutionScope.
 - Вход «текст + изображения»: canonical image refs, хранилище вложений,
   process Workflow/Model, capability validation, OpenAI/Anthropic encoding,
   прикрепление и миниатюры в приложении, cold history/resume;
   [границы и использование](../guides/images.md).
 - Standalone process Workflow без conversation и модели; typed top-level
-  операции `execute_tool` и `remember` без открытия Turn.
+  операция `execute_tool` без открытия Turn; `/remember` вызывает memory tool.
 - Opt-in typed `hook/v4` contributions: явная ordered chain, model instructions/
   messages, pre-tool block/args, post-tool output и bounded completion review;
   callbacks отсутствуют.
@@ -23,7 +24,7 @@
   view, package-owned durable state; исходная история сохраняется. Это перенос
   механизма DCP 3.2.0 с явными adaptations, без OpenCode commands/TUI/RPC;
   [подключение](../../modules/reference/dcp/README.md).
-- Общий tool safety/approval path и execution-bound model/tools/memory.
+- Общий tool safety/approval path и execution-bound model/tools/context providers.
 - Canonical journal, history/resume, prompt replay и workflow replay
   в поддержанной границе.
 - Workflow checkpoints и явные bindings tool results: выбранный прогресс

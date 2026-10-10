@@ -75,28 +75,6 @@ impl ProcessExportClient {
         self.decode(method, terminal)
     }
 
-    pub async fn invoke_with_dispatcher<P, R>(
-        &self,
-        method: &str,
-        params: &P,
-        dispatcher: Arc<dyn AsyncHostRequestDispatcher>,
-    ) -> Result<R>
-    where
-        P: Serialize,
-        R: DeserializeOwned,
-    {
-        let value = self.encode(method, params)?;
-        let mut handle = self
-            .start(method, value, dispatcher)
-            .await
-            .with_context(|| self.invocation_context(method))?;
-        let terminal = handle
-            .result()
-            .await
-            .with_context(|| self.invocation_context(method))?;
-        self.decode(method, terminal)
-    }
-
     pub async fn invoke_with_dispatcher_and_cancel_check<P, R, F>(
         &self,
         method: &str,
@@ -285,8 +263,8 @@ mod tests {
     use crate::{
         contracts::{
             PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_CONTRACT_VERSION,
+            PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION, PROCESS_CONTEXT_PROVIDER_METHOD,
             PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD,
-            PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD,
         },
         process_adapters::{ProcessComponentConfig, ProcessComponentLauncher},
     };
@@ -344,7 +322,7 @@ mod tests {
                 .map_err(callback_error);
             Box::pin(async move {
                 let asynchronous: Value = search
-                    .invoke(PROCESS_SEARCH_METHOD, &json!({"op": "lineage"}))
+                    .invoke(PROCESS_CONTEXT_PROVIDER_METHOD, &json!({"op": "lineage"}))
                     .await
                     .map_err(callback_error)?;
                 let blocking = blocking?;
@@ -375,7 +353,7 @@ mod tests {
             "handshake_timeout_ms": 3_000,
             "exports": {
                 "context": {"scope.context": {"timeout_ms": 3_000}},
-                "search": {"scope.search": {"timeout_ms": 3_000}},
+                "context_provider": {"scope.search": {"timeout_ms": 3_000}},
                 "policy": {"scope.policy": {"timeout_ms": 3_000}}
             }
         }))
@@ -389,9 +367,9 @@ mod tests {
             )
             .expect("context binding"),
             ProcessExportBinding::new(
-                "search",
+                "context_provider",
                 "scope.search",
-                PROCESS_SEARCH_CONTRACT_VERSION,
+                PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
                 json!({}),
             )
             .expect("search binding"),
@@ -419,10 +397,10 @@ mod tests {
         );
         let search = Arc::new(
             ProcessExportClient::connect(
-                "search",
-                PROCESS_SEARCH_CONTRACT_VERSION,
+                "context_provider",
+                PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
                 launcher
-                    .export("search", "scope.search")
+                    .export("context_provider", "scope.search")
                     .expect("search export"),
                 workspace.path(),
                 3_000,
@@ -443,13 +421,14 @@ mod tests {
         );
 
         let response: Value = context
-            .invoke_with_dispatcher(
+            .invoke_with_dispatcher_and_cancel_check(
                 PROCESS_CONTEXT_BUILD_METHOD,
                 &json!({"op": "callback"}),
                 Arc::new(NestedProbeDispatcher {
                     search: Arc::clone(&search),
                     policy,
                 }),
+                || false,
             )
             .await
             .expect("outer invocation");
@@ -463,7 +442,7 @@ mod tests {
         }
 
         let standalone: Value = search
-            .invoke(PROCESS_SEARCH_METHOD, &json!({"op": "lineage"}))
+            .invoke(PROCESS_CONTEXT_PROVIDER_METHOD, &json!({"op": "lineage"}))
             .await
             .expect("standalone search");
         let lineage = &standalone["value"];

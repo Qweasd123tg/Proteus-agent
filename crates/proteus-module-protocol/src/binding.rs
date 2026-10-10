@@ -154,20 +154,25 @@ impl ProcessComponentBinding {
 
 #[cfg(test)]
 mod tests {
-    use proteus_contracts::contracts::PROCESS_SEARCH_CONTRACT_VERSION;
+    use proteus_contracts::contracts::PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION;
     use serde_json::json;
 
     use super::*;
 
     #[test]
     fn binding_rejects_empty_identity() {
-        ProcessExportBinding::new("search", "", PROCESS_SEARCH_CONTRACT_VERSION, json!({}))
-            .expect_err("empty module id must fail");
+        ProcessExportBinding::new(
+            "context_provider",
+            "",
+            PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
+            json!({}),
+        )
+        .expect_err("empty module id must fail");
     }
 
     #[test]
     fn binding_requires_an_admitted_contract() {
-        let binding = ProcessExportBinding::new("search", "fixture", "v999", json!({}))
+        let binding = ProcessExportBinding::new("context_provider", "fixture", "v999", json!({}))
             .expect("binding shape");
 
         binding.authority().expect_err("unknown contract must fail");
@@ -176,9 +181,9 @@ mod tests {
     #[test]
     fn binding_requires_an_object_config() {
         ProcessExportBinding::new(
-            "search",
+            "context_provider",
             "fixture",
-            PROCESS_SEARCH_CONTRACT_VERSION,
+            PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
             json!(["not", "an", "object"]),
         )
         .expect_err("module config must be an object");
@@ -187,9 +192,9 @@ mod tests {
     #[test]
     fn component_binding_rejects_duplicate_exports() {
         let first = ProcessExportBinding::new(
-            "search",
+            "context_provider",
             "fixture",
-            PROCESS_SEARCH_CONTRACT_VERSION,
+            PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
             json!({}),
         )
         .expect("first");

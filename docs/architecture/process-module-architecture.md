@@ -99,15 +99,20 @@ env = { MODE = "local" }
 handshake_timeout_ms = 30000
 description = "Reference capability component"
 
-[components.reference-capabilities.exports.search.rg]
+[components.reference-capabilities.exports.tool.rg_search]
 timeout_ms = 30000
+
+[components.reference-capabilities.exports.context_provider.rg_search]
 
 [components.reference-capabilities.exports.context_provider.skills]
 
 [components.reference-capabilities.exports.tool."reference.tools"]
 
-[module_config.search.rg]
-roots = ["src", "crates"]
+[components.reference-capabilities.exports.context.simple]
+
+[module_config.context.simple]
+search_provider = "rg_search"
+max_search_results = 10
 ```
 
 Разделение намеренное:
@@ -121,7 +126,10 @@ roots = ["src", "crates"]
 
 ```toml
 [modules]
-search = "rg"
+context = "simple"
+
+[tools]
+enabled = ["search"]
 ```
 
 `components` — map, поэтому config include/overlay может рекурсивно добавить
@@ -141,7 +149,7 @@ composition(slot contract) = select_one | ordered_many
 Composition хранится в общей authority table и подтверждается отдельно для
 каждого export:
 
-- `select_one`: workflow, search, memory, context, policy, compactor,
+- `select_one`: workflow, model, context, policy, compactor,
   tool exposure;
 - `ordered_many`: tool, context provider, hook.
 
@@ -163,10 +171,10 @@ Composition хранится в общей authority table и подтвержд
     "component_id": "reference-capabilities",
     "exports": [
       {
-        "slot": "search",
-        "module_id": "rg",
-        "contract_version": "v2",
-        "composition": "select_one",
+        "slot": "context_provider",
+        "module_id": "rg_search",
+        "contract_version": "v4",
+        "composition": "ordered_many",
         "module_config": {},
         "host_features": []
       },
@@ -194,10 +202,10 @@ Composition хранится в общей authority table и подтвержд
     "component_id": "reference-capabilities",
     "exports": [
       {
-        "slot": "search",
-        "module_id": "rg",
-        "contract_version": "v2",
-        "composition": "select_one",
+        "slot": "context_provider",
+        "module_id": "rg_search",
+        "contract_version": "v4",
+        "composition": "ordered_many",
         "module_features": [],
         "config_schema": { "fields": [] }
       },
@@ -274,15 +282,23 @@ JSON-RPC method остаётся методом slot contract, а `params` по�
 {
   "jsonrpc": "2.0",
   "id": "h:1:7",
-  "method": "search",
+   "method": "provide",
   "params": {
-    "export": { "slot": "search", "module_id": "rg" },
+    "export": { "slot": "context_provider", "module_id": "rg_search" },
     "lineage": {
       "root_invocation_id": "h:1:7",
       "parent_invocation_id": null,
       "depth": 0
     },
-    "params": { "text": "needle", "cwd": ".", "max_results": 10 }
+    "params": {
+      "input": {
+        "provider_id": "rg_search", "task": { "text": "needle", "cwd": "." },
+        "metadata": { "text": "needle", "cwd": ".", "max_results": 10,
+                      "use_case": "context", "starts_with": [], "ends_with": [] }
+      },
+      "attribution": { "execution_id": "00000000-0000-0000-0000-000000000001", "agent": null },
+      "skills": { "disabled": [], "packages": [] }
+    }
   }
 }
 ```
@@ -354,13 +370,11 @@ Rust host и модуль используют один
 | Slot | Contract | Module methods | Host callbacks |
 |---|---|---|---|
 | hook | v4 | `hook.invoke` | — |
-| search | v2 | `search` | — |
-| memory | v2 | `remember`, `recall` | — |
 | tool exposure | v4 | `select` | — |
 | policy | v2 | `evaluate`, `evaluate_visibility` | — |
-| context provider | v2 | `provide` | — |
+| context provider | v4 | `provide`, `catalog` | — |
 | tool | v5 | `list`, `invoke` | `host.conversation.read`, `host.conversation.snapshot` (только чтение, conversation-bound invocation) |
-| context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
+| context | v3 | `build` | `host.context.provide` |
 | model | v12 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v11 | `compact` | `host.model.complete` |
 | workflow | v19 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
@@ -577,9 +591,9 @@ reference-workflow       workflow
         │ host.context/tools/compaction
         ▼
 reference-context        context
-        │ host.search/memory/providers
+        │ host.context.provide
         ▼
-reference-capabilities   search, provider, policy, compactor,
+reference-capabilities   providers, policy, compactor,
                          tool exposure, tools
 ```
 
@@ -668,10 +682,14 @@ command-execution authority.
 Дополнительно `invoke` получает mandatory `skills: SkillRuntimeSettings`:
 `{ "disabled": [], "packages": [] }` допустим для сборки без навыков. Настройки
 захватываются adapter-ом из той же immutable сборки, а не из mutable UI state.
-`context_provider/v3` принимает `provide` как `{ input: ProcessContextProviderInput,
-skills: SkillRuntimeSettings }`. Callback `host.context.provide` у `context/v2`
-не меняет форму: host связывает provider request с собственными settings.
-Новый `catalog` принимает `{ cwd, skills }`, возвращает `{ result: null }` либо
+`context/v3` принимает `{ task, attribution }`. `context_provider/v4` принимает
+`provide` как `{ input: ProcessContextProviderInput, attribution: ExecutionAttribution,
+skills: SkillRuntimeSettings }`. Callback `host.context.provide` передаёт только
+provider input; host добавляет attribution/settings активной execution и
+пересылает opaque `input.metadata` без изменения. Cancellation наследуется от
+того же execution scope и адресуется активной provider invocation. Это не требует
+conversation или model call и не даёт context доступа к tool execution.
+Read-only `catalog` принимает `{ cwd, skills }`, возвращает `{ result: null }` либо
 `{ result: { skills: [SkillDescriptor], warnings: [] } }`. Descriptor содержит
 `id`, `name`, `description`, `path`, `source`, `enabled`; пустые/повторные identity
 отклоняются. Каталог не предоставляет новых callbacks или execution authority.
@@ -696,10 +714,9 @@ skills: SkillRuntimeSettings }`. Callback `host.context.provide` у `context/v2`
 component binding. Reference-модуль не является standard/default pack и не
 получает особых прав.
 
-Python examples доказывают независимость wire от Rust и реализуют
-single-export components:
+Python examples доказывают независимость wire от Rust:
 
-- `examples/modules/search-process/search.py`;
+- `examples/modules/search-process/search.py` (tool и context provider exports);
 - `examples/modules/compactor-process/compact.py`;
 - `examples/modules/agent-worker/agent.py`.
 
@@ -713,10 +730,10 @@ JS/TS [`hook-process`](../../examples/modules/hook-process/README.md) испол
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-search \
-  --export '{"slot":"search","module_id":"python_rg","contract_version":"v2","module_config":{}}' \
-  --probe-export search/python_rg \
-  --probe-method search \
-  --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' \
+  --export '{"slot":"tool","module_id":"python_rg","contract_version":"v5","module_config":{}}' \
+  --probe-export tool/python_rg \
+  --probe-method list \
+  --probe-params 'null' \
   -- python3 examples/modules/search-process/search.py
 ```
 

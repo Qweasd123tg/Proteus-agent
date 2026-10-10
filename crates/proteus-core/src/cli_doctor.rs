@@ -314,7 +314,6 @@ pub(crate) fn check_external_commands(
                     &format!("configured MCP tool '{}'", tool.name),
                 );
             }
-            ConfiguredToolExecutorConfig::Native { .. } => {}
         }
     }
 

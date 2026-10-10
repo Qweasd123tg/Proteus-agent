@@ -2,10 +2,9 @@ use std::collections::HashMap;
 
 use anyhow::{Result, bail};
 use proteus_contracts::process_module::{
-    CompactorModuleObject, ContextBuilderModuleObject, ContextProviderModuleObject,
-    MemoryModuleObject, ModuleRegistry, PolicyModuleObject, ProcessModuleError,
-    ProcessModuleResult, SearchModuleObject, ToolExposureModuleObject, ToolModuleObject,
-    WorkflowModuleObject,
+    CompactorModuleObject, ContextBuilderModuleObject, ContextProviderModuleObject, ModuleRegistry,
+    PolicyModuleObject, ProcessModuleError, ProcessModuleResult, ToolExposureModuleObject,
+    ToolModuleObject, WorkflowModuleObject,
 };
 use serde_json::{Value, json};
 
@@ -16,8 +15,6 @@ pub struct CollectedModules {
     module_config: Value,
     pub tools: Vec<ToolModuleObject>,
     pub policies: HashMap<String, PolicyModuleObject>,
-    pub searches: HashMap<String, SearchModuleObject>,
-    pub memories: HashMap<String, MemoryModuleObject>,
     pub context_providers: HashMap<String, ContextProviderModuleObject>,
     pub contexts: HashMap<String, ContextBuilderModuleObject>,
     pub compactors: HashMap<String, CompactorModuleObject>,
@@ -59,11 +56,11 @@ impl CollectedModules {
             ("tool", "rust_lsp") => rust_lsp::register_modules,
             ("tool", "skill_tool") => skill_pack::register_modules,
             ("tool", "policy_tools") => policy_pack::register_modules,
-            ("search", "rg") => rg_search::register_modules,
+            ("tool" | "context_provider", "rg_search") => rg_search::register_modules,
             ("tool", "direct_patch") => direct_patch::register_modules,
             ("tool", "codex_patch") => codex_patch::register_modules,
-            ("memory", "jsonl") => memory_pack::register_modules,
-            ("memory", "sqlite") => sqlite_memory::register_modules,
+            ("tool" | "context_provider", "jsonl_memory") => memory_pack::register_modules,
+            ("tool" | "context_provider", "sqlite_memory") => sqlite_memory::register_modules,
             ("context", "simple" | "repo_aware" | "codex_context") => {
                 context_pack::register_modules
             }
@@ -93,8 +90,6 @@ impl CollectedModules {
             module_config,
             tools: Vec::new(),
             policies: HashMap::new(),
-            searches: HashMap::new(),
-            memories: HashMap::new(),
             context_providers: HashMap::new(),
             contexts: HashMap::new(),
             compactors: HashMap::new(),
@@ -146,22 +141,6 @@ impl ModuleRegistry for CollectedModules {
         policy: PolicyModuleObject,
     ) -> ProcessModuleResult<()> {
         insert(&mut self.policies, module_id, policy)
-    }
-
-    fn register_search(
-        &mut self,
-        module_id: String,
-        backend: SearchModuleObject,
-    ) -> ProcessModuleResult<()> {
-        insert(&mut self.searches, module_id, backend)
-    }
-
-    fn register_memory(
-        &mut self,
-        module_id: String,
-        store: MemoryModuleObject,
-    ) -> ProcessModuleResult<()> {
-        insert(&mut self.memories, module_id, store)
     }
 
     fn register_context_provider(

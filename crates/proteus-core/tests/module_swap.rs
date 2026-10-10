@@ -15,8 +15,13 @@ use std::{
 
 use async_trait::async_trait;
 use proteus_contracts::{
-    contracts::{CompactionHost, CompactionInput, CompactionOutput, SearchQuery},
-    domain::{AgentTask, ContextRenderMode, ModelRef},
+    contracts::{
+        CompactionHost, CompactionInput, CompactionOutput, ExecutionAttribution, ToolContext,
+    },
+    domain::{
+        AgentTask, ContextChunk, ContextRenderMode, ModelRef, ToolCall, ToolResult, new_call_id,
+        new_execution_id,
+    },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, MessageRole,
     },
@@ -68,11 +73,11 @@ fn component_exports(exports: &[(&str, &str)]) -> ProcessComponentConfig {
 
 fn search_config(module_id: &str, mode: &str) -> AppConfig {
     let mut config = test_model::config();
-    config.modules.search = Some(module_id.to_owned());
+    config.tools.enabled = vec!["search".to_owned()];
     config.components.insert(
         "search-fixture".to_owned(),
         component(
-            "search",
+            "tool",
             module_id,
             "crates/proteus-core/tests/fixtures/process_search.sh",
             &[mode, module_id, "search-fixture"],
@@ -107,35 +112,39 @@ fn registry(config: &AppConfig, cwd: &Path) -> anyhow::Result<RuntimeRegistry> {
     RuntimeRegistry::from_config(config, cwd.to_path_buf())
 }
 
+async fn search(registry: &RuntimeRegistry, cwd: &Path) -> anyhow::Result<ToolResult> {
+    registry
+        .tools
+        .get("search")
+        .expect("selected search tool")
+        .invoke(
+            &ToolCall::new(
+                new_call_id(),
+                "search",
+                json!({"query": "needle", "max_results": 5}),
+            ),
+            ToolContext::new(
+                cwd.to_path_buf(),
+                ExecutionAttribution::detached(new_execution_id()),
+            ),
+        )
+        .await
+}
+
 #[tokio::test]
-async fn search_slot_swaps_component_exports_without_changing_canonical_contract() {
+async fn search_tool_swaps_component_exports_without_changing_canonical_contract() {
     let workspace = tempfile::tempdir().expect("workspace");
     let absent = registry(&test_model::config(), workspace.path()).expect("absent search");
-    assert!(
-        absent
-            .search
-            .search(SearchQuery::new(
-                "needle",
-                workspace.path().to_path_buf(),
-                5,
-            ))
-            .await
-            .expect("structural fallback")
-            .is_empty()
-    );
+    assert!(absent.tools.get("search").is_none());
 
     for module_id in ["fixture_a", "fixture_b"] {
         let selected = registry(&search_config(module_id, "static"), workspace.path())
             .expect("selected process search");
-        let chunks = selected
-            .search
-            .search(SearchQuery::new(
-                "needle",
-                workspace.path().to_path_buf(),
-                5,
-            ))
+        let result = search(&selected, workspace.path())
             .await
             .expect("canonical search response");
+        let chunks: Vec<ContextChunk> =
+            serde_json::from_value(result.metadata["chunks"].clone()).unwrap();
 
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].source, format!("process:{module_id}"));
@@ -149,7 +158,7 @@ async fn search_slot_swaps_component_exports_without_changing_canonical_contract
 fn assembly_plan_requires_an_exact_registered_selection() {
     let workspace = tempfile::tempdir().expect("workspace");
     let mut config = test_model::config();
-    config.modules.search = Some("missing".to_owned());
+    config.modules.context = Some("missing".to_owned());
 
     let error = match registry(&config, workspace.path()) {
         Ok(_) => panic!("missing descriptor must fail"),
@@ -158,7 +167,7 @@ fn assembly_plan_requires_an_exact_registered_selection() {
     assert!(
         error
             .to_string()
-            .contains("assembly plan is invalid: active module is not registered: search/missing")
+            .contains("assembly plan is invalid: active module is not registered: context/missing")
     );
 }
 
@@ -168,7 +177,7 @@ fn duplicate_component_export_identity_is_rejected_before_runtime_build() {
     config.components.insert(
         "duplicate-fixture".to_owned(),
         component(
-            "search",
+            "tool",
             "fixture",
             "crates/proteus-core/tests/fixtures/process_search.sh",
             &["static", "fixture", "duplicate-fixture"],
@@ -182,7 +191,7 @@ fn duplicate_component_export_identity_is_rejected_before_runtime_build() {
     assert!(
         error
             .to_string()
-            .contains("duplicate process component export: search/fixture")
+            .contains("duplicate process component export: tool/fixture")
     );
 }
 
@@ -217,7 +226,7 @@ fn handshake_mismatch_is_a_snapshot_build_error() {
     let message = format!("{error:#}");
     assert!(message.contains("strict initialization"), "{message}");
     assert!(
-        message.contains("returned undeclared export memory/fixture"),
+        message.contains("returned undeclared export context_provider/fixture"),
         "{message}"
     );
 }
@@ -228,13 +237,7 @@ async fn selected_process_failure_never_falls_back_to_absence() {
     let selected = registry(&search_config("fixture", "error"), workspace.path())
         .expect("selected process search");
 
-    let error = selected
-        .search
-        .search(SearchQuery::new(
-            "needle",
-            workspace.path().to_path_buf(),
-            5,
-        ))
+    let error = search(&selected, workspace.path())
         .await
         .expect_err("module error must propagate");
     let message = format!("{error:#}");
@@ -243,18 +246,12 @@ async fn selected_process_failure_never_falls_back_to_absence() {
 }
 
 #[tokio::test]
-async fn invalid_slot_response_is_rejected_without_legacy_shape() {
+async fn invalid_tool_response_is_rejected_without_legacy_shape() {
     let workspace = tempfile::tempdir().expect("workspace");
     let selected = registry(&search_config("fixture", "invalid"), workspace.path())
         .expect("selected process search");
 
-    let error = selected
-        .search
-        .search(SearchQuery::new(
-            "needle",
-            workspace.path().to_path_buf(),
-            5,
-        ))
+    let error = search(&selected, workspace.path())
         .await
         .expect_err("bare array must be rejected");
     assert!(
@@ -355,28 +352,24 @@ async fn multiple_exports_share_one_component_process_and_lifecycle() {
         ],
         "handshake_timeout_ms": 3_000,
         "exports": {
-            "search": {"fixture-search": {"timeout_ms": 3_000}},
+            "tool": {"fixture-search": {"timeout_ms": 3_000}},
             "compactor": {"fixture-compactor": {"timeout_ms": 3_000}},
         },
     }))
     .expect("multi-export component config");
     let mut config = test_model::config();
-    config.modules.search = Some("fixture-search".to_owned());
+    config.tools.enabled = vec!["search".to_owned()];
     config.modules.compactor = Some("fixture-compactor".to_owned());
     config
         .components
         .insert("multi-fixture".to_owned(), component);
 
     let selected = registry(&config, workspace.path()).expect("multi-export registry");
-    let chunks = selected
-        .search
-        .search(SearchQuery::new(
-            "needle",
-            workspace.path().to_path_buf(),
-            5,
-        ))
+    let result = search(&selected, workspace.path())
         .await
         .expect("shared search export");
+    let chunks: Vec<ContextChunk> =
+        serde_json::from_value(result.metadata["chunks"].clone()).unwrap();
     assert_eq!(chunks[0].source, "shared-component");
     let output = compact(&selected, workspace.path())
         .await

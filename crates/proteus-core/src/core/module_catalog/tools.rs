@@ -3,10 +3,9 @@ use std::{path::Path, sync::Arc};
 use anyhow::{Result, bail};
 
 use crate::{
-    contracts::{MemoryStore, SearchBackend, ToolRegistry, ToolSource, register_provider_tools},
+    contracts::{ToolRegistry, ToolSource, register_provider_tools},
     core::AppConfig,
     domain::ToolSpec,
-    stubs::{NoMemory, NullSearch},
     tools::{BuiltinToolProvider, is_builtin_tool_name, register_configured_tools},
 };
 
@@ -34,21 +33,13 @@ impl ModuleCatalog {
             cwd,
             context_providers: &context_providers,
         };
-        self.build_tools(
-            &ctx,
-            Arc::new(NullSearch),
-            Arc::new(NoMemory),
-            &addons.skills,
-            &addons.servers,
-        )
-        .map(|surface| surface.tools)
+        self.build_tools(&ctx, &addons.skills, &addons.servers)
+            .map(|surface| surface.tools)
     }
 
     pub(crate) fn build_tools(
         &self,
         ctx: &ModuleBuildContext<'_>,
-        search: Arc<dyn SearchBackend>,
-        memory: Arc<dyn MemoryStore>,
         skills: &crate::domain::SkillRuntimeSettings,
         plugin_servers: &[crate::domain::ConfiguredMcpServerConfig],
     ) -> Result<BuiltToolSurface> {
@@ -78,7 +69,7 @@ impl ModuleCatalog {
             );
         }
 
-        let builtin_tools = BuiltinToolProvider::new(builtin_names, search.clone(), memory.clone());
+        let builtin_tools = BuiltinToolProvider::new(builtin_names);
         register_provider_tools(&mut tools, &builtin_tools)?;
         let mut mcp_servers = ctx.config.tools.mcp_servers.clone();
         mcp_servers.extend_from_slice(plugin_servers);
@@ -94,7 +85,6 @@ impl ModuleCatalog {
             &ctx.config.tools.configured,
             &mcp_servers,
             ctx.cwd,
-            search,
         )?;
 
         for name in &ctx.config.tools.enabled {

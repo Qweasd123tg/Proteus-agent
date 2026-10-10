@@ -60,15 +60,6 @@ pub(super) fn build_edges(
         if tool.enabled {
             edges.push(edge("config", &tool_node, "enables", Some("enabled")));
         }
-        match tool.name.as_str() {
-            "search" | "grep" | "find_files" => {
-                edges.push(edge(&tool_node, "slot:search", "uses", None));
-            }
-            "remember" | "remember_fact" => {
-                edges.push(edge(&tool_node, "slot:memory", "uses", None));
-            }
-            _ => {}
-        }
     }
     for tool in tools.iter().filter(|tool| !tool.registered) {
         let tool_node = format!("tool:{}", tool.name);

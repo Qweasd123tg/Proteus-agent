@@ -10,7 +10,6 @@ name = "coding-local"
 
 [modules]
 workflow = "coding.single_loop"
-search = "rg"
 context = "repo_aware"
 policy = "ask_write"
 compactor = "codex"
@@ -29,7 +28,11 @@ command = "proteus-reference-module"
 command = "proteus-reference-module"
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
-[components.reference-capabilities.exports.search.rg]
+[components.reference-capabilities.exports.tool.rg_search]
+
+[components.reference-capabilities.exports.context_provider.rg_search]
+
+[components.reference-capabilities.exports.tool.jsonl_memory]
 
 [components.reference-capabilities.exports.context_provider.skills]
 
@@ -47,7 +50,7 @@ surface = "none"
 [tools]
 # Full local coding toolset. File I/O and repo navigation come from
 # file-tools, git helpers come from git-tools, shell comes from shell-tool,
-# apply_patch comes from direct_patch; search/remember_fact are core slot facade tools.
+# apply_patch, search and remember_fact come from explicitly selected process tools.
 # Run ./install.sh before using this profile so the worker is on PATH.
 enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "request_user_input", "apply_patch", "write_file", "shell", "remember_fact"]
 
@@ -62,6 +65,7 @@ ask_before = ["lsp_diagnostics", "apply_patch", "write_file", "shell", "remember
 # Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
 
 [module_config.context.repo_aware]
+search_provider = "rg_search"
 providers = ["project_instructions", "skills", "manifest", "git_status", "repo_tree", "memory", "search"]
 max_context_bytes = 60000
 max_bytes_per_file = 8000

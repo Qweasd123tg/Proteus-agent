@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Result, ensure};
-use proteus_contracts::contracts::PROCESS_SEARCH_CONTRACT_VERSION;
+use proteus_contracts::contracts::PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION;
 use proteus_module_protocol::v3::{ComponentBroker, ComponentBrokerOptions};
 use proteus_module_protocol::{ProcessComponentBinding, ProcessExportBinding};
 use proteus_process_host::ProcessSpec;
@@ -25,9 +25,9 @@ fn initialize_write_to_nonreading_child_obeys_handshake_deadline() -> Result<()>
     let binding = ProcessComponentBinding::new(
         "nonreading",
         [ProcessExportBinding::new(
-            "search",
+            "context_provider",
             "fixture.search",
-            PROCESS_SEARCH_CONTRACT_VERSION,
+            PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
             json!({"large_config": "x".repeat(1024 * 1024)}),
         )?],
     )?;

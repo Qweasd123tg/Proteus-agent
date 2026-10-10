@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Concurrent memory/v2 component for Phase 8B admission tests."""
+"""Concurrent memory tool/v5 component for admission tests."""
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ from component_runtime import PROTOCOL_VERSION, ProtocolError, run_component  # 
 COMPONENT_ID = "phase8-memory-component"
 MODULE_ID = "phase8-memory"
 EXPORT = {
-    "slot": "memory",
+    "slot": "tool",
     "module_id": MODULE_ID,
-    "contract_version": "v2",
-    "composition": "select_one",
+    "contract_version": "v5",
+    "composition": "ordered_many",
     "module_features": [], "config_schema": None,
 }
 record_path: Path | None = None
@@ -41,7 +41,7 @@ def initialize(params):
         export.get("contract_version"),
         export.get("composition"),
     )
-    if identity != ("memory", MODULE_ID, "v2", "select_one"):
+    if identity != ("tool", MODULE_ID, "v5", "ordered_many"):
         raise ProtocolError(f"invalid Phase 8B memory export: {identity!r}")
     config = export.get("module_config")
     if not isinstance(config, dict) or not isinstance(config.get("record_path"), str):
@@ -66,23 +66,33 @@ def append_record(value):
 def validate_attribution(params):
     attribution = params.get("attribution")
     if not isinstance(attribution, dict) or set(attribution) != {"execution_id", "agent"}:
-        raise ProtocolError("memory/v2 attribution is mandatory and strict")
+        raise ProtocolError("tool/v5 attribution is mandatory and strict")
     if not isinstance(attribution.get("execution_id"), str) or attribution.get("agent") is not None:
         raise ProtocolError("Phase 8B top-level memory requires detached attribution")
     return attribution
 
 
 def invoke(context, method, params):
-    if context.export != {"slot": "memory", "module_id": MODULE_ID}:
+    if context.export != {"slot": "tool", "module_id": MODULE_ID}:
         raise ProtocolError("unexpected Phase 8B export")
-    attribution = validate_attribution(params)
-    if method == "recall":
-        append_record({"method": method, "attribution": attribution, "query": params.get("query")})
-        return {"result": []}
-    if method != "remember":
+    if method == "list":
+        return {"result": [{"spec": {
+            "name": "remember_fact", "description": "Concurrent memory fixture",
+            "input_schema": {"type": "object", "properties": {
+                "kind": {"type": "string", "enum": ["preference", "fact"]},
+                "content": {"type": "string"}, "metadata": {"type": "object"},
+            }, "required": ["kind", "content"]},
+            "surface": {"kind": "function", "strict": False, "output_schema": None},
+            "safety": "WritesFiles", "supports_parallel_tool_calls": False,
+            "timeout_ms": 5000, "metadata": {},
+        }, "model_visible": True, "user_command": None}]}
+    if method != "invoke":
         raise ProtocolError(f"unexpected memory method: {method}")
-
-    item = params.get("item")
+    attribution = validate_attribution(params)
+    call = params.get("call")
+    if not isinstance(call, dict) or call.get("name") != "remember_fact":
+        raise ProtocolError("expected remember_fact call")
+    item = call.get("args")
     if not isinstance(item, dict):
         raise ProtocolError("remember item must be an object")
     metadata = item.get("metadata")
@@ -104,7 +114,8 @@ def invoke(context, method, params):
         time.sleep(0.01)
 
     append_record({"method": method, "attribution": attribution, "item": item})
-    return {"result": None}
+    return {"result": {"call_id": call["id"], "ok": True, "output": "remembered",
+                       "content": [], "error": None, "metadata": {}}}
 
 
 run_component(initialize, invoke)

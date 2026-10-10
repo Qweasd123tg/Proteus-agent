@@ -7,11 +7,11 @@ use std::{
 
 use anyhow::{Result, ensure};
 use proteus_contracts::contracts::{
-    CONTEXT_HOST_SEARCH_METHOD, PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_CONTRACT_VERSION,
-    PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD, PROCESS_WORKFLOW_CONTRACT_VERSION,
-    PROCESS_WORKFLOW_METHOD, ProcessComponentExportRef, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
-    WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
-    WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD,
+    CONTEXT_HOST_PROVIDER_METHOD, PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_CONTRACT_VERSION,
+    PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION, PROCESS_CONTEXT_PROVIDER_METHOD,
+    PROCESS_WORKFLOW_CONTRACT_VERSION, PROCESS_WORKFLOW_METHOD, ProcessComponentExportRef,
+    WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
+    WORKFLOW_HOST_EXECUTE_TOOL_METHOD, WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD,
 };
 use proteus_module_protocol::v3::{
     AsyncHostRequestDispatcher, CancelCause, ComponentBroker, ComponentBrokerErrorKind,
@@ -35,9 +35,9 @@ fn configuration_metadata_is_validated_and_read_without_invocation() -> Result<(
     let binding = ProcessComponentBinding::new(
         "metadata",
         [ProcessExportBinding::new(
-            "search",
+            "context_provider",
             "custom-search",
-            PROCESS_SEARCH_CONTRACT_VERSION,
+            PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
             json!({"schema_fixture":schema}),
         )?],
     )?;
@@ -53,9 +53,9 @@ fn configuration_metadata_is_validated_and_read_without_invocation() -> Result<(
     let binding = ProcessComponentBinding::new(
         "invalid-metadata",
         [ProcessExportBinding::new(
-            "search",
+            "context_provider",
             "custom-search",
-            PROCESS_SEARCH_CONTRACT_VERSION,
+            PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
             json!({"schema_fixture":invalid}),
         )?],
     )?;
@@ -154,7 +154,8 @@ async fn overlapping_callbacks_keep_parent_authority() -> Result<()> {
             == [WORKFLOW_HOST_BUILD_CONTEXT_METHOD]
     );
     ensure!(
-        context_seen.lock().expect("context seen mutex").as_slice() == [CONTEXT_HOST_SEARCH_METHOD]
+        context_seen.lock().expect("context seen mutex").as_slice()
+            == [CONTEXT_HOST_PROVIDER_METHOD]
     );
     Ok(())
 }
@@ -800,8 +801,8 @@ async fn protocol_faults_fail_closed_and_restart_lazily() -> Result<()> {
     let forbidden_generation = broker.snapshot()?.generation;
     let mut forbidden = broker
         .start_invocation_with_dispatcher(
-            &export("search", "fixture.search"),
-            PROCESS_SEARCH_METHOD,
+            &export("context_provider", "fixture.search"),
+            PROCESS_CONTEXT_PROVIDER_METHOD,
             json!({"op":"callback"}),
             INVOCATION_TIMEOUT,
             Arc::new(RecordingDispatcher::new(
@@ -1025,7 +1026,7 @@ async fn crash_and_resource_fault_fan_out() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bootstrap_closes_after_runtime_traffic() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
-    let search = export("search", "fixture.search");
+    let search = export("context_provider", "fixture.search");
     let invalid = broker
         .start_invocation(&search, "not.search", json!({}), INVOCATION_TIMEOUT)
         .await
@@ -1034,7 +1035,7 @@ async fn bootstrap_closes_after_runtime_traffic() -> Result<()> {
     ensure!(matches!(
         broker.invoke_bootstrap(
             &search,
-            PROCESS_SEARCH_METHOD,
+            PROCESS_CONTEXT_PROVIDER_METHOD,
             json!({"op":"echo", "value":"bootstrap"}),
             INVOCATION_TIMEOUT,
         )?,
@@ -1043,7 +1044,7 @@ async fn bootstrap_closes_after_runtime_traffic() -> Result<()> {
     let mut runtime = broker
         .start_invocation(
             &search,
-            PROCESS_SEARCH_METHOD,
+            PROCESS_CONTEXT_PROVIDER_METHOD,
             json!({"op":"echo", "value":"runtime"}),
             INVOCATION_TIMEOUT,
         )
@@ -1055,7 +1056,7 @@ async fn bootstrap_closes_after_runtime_traffic() -> Result<()> {
     let error = broker
         .invoke_bootstrap(
             &search,
-            PROCESS_SEARCH_METHOD,
+            PROCESS_CONTEXT_PROVIDER_METHOD,
             json!({"op":"echo"}),
             INVOCATION_TIMEOUT,
         )
@@ -1122,9 +1123,10 @@ impl AsyncHostRequestDispatcher for NestedDispatcher {
                     export("context", "fixture.context"),
                     PROCESS_CONTEXT_BUILD_METHOD,
                 ),
-                CONTEXT_HOST_SEARCH_METHOD => {
-                    (export("search", "fixture.search"), PROCESS_SEARCH_METHOD)
-                }
+                CONTEXT_HOST_PROVIDER_METHOD => (
+                    export("context_provider", "fixture.search"),
+                    PROCESS_CONTEXT_PROVIDER_METHOD,
+                ),
                 method => {
                     return Err(ProcessModuleRpcError::new(
                         -32601,
@@ -1236,9 +1238,9 @@ fn binding() -> Result<ProcessComponentBinding> {
                 json!({}),
             )?,
             ProcessExportBinding::new(
-                "search",
+                "context_provider",
                 "fixture.search",
-                PROCESS_SEARCH_CONTRACT_VERSION,
+                PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
                 json!({}),
             )?,
         ],

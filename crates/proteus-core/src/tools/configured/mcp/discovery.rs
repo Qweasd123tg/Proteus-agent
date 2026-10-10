@@ -58,7 +58,13 @@ pub(super) fn mcp_tools_from_list(
 }
 
 pub(super) fn effective_mcp_safety(safety: ToolSafety) -> ToolSafety {
-    super::super::max_tool_safety(safety, ToolSafety::RunsCommands)
+    match safety {
+        ToolSafety::Dangerous => ToolSafety::Dangerous,
+        ToolSafety::Network => ToolSafety::Network,
+        ToolSafety::ReadOnly | ToolSafety::WritesFiles | ToolSafety::RunsCommands => {
+            ToolSafety::RunsCommands
+        }
+    }
 }
 
 fn discovered_mcp_tool_name(server: &str, remote_tool: &str) -> String {

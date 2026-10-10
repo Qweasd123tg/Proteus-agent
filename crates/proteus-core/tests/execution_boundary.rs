@@ -15,10 +15,11 @@ use async_trait::async_trait;
 use proteus_contracts::{
     contracts::{
         ApprovalPolicy, CancellationToken, ExecutionAttribution, ExecutionPermissionGrants,
-        ExecutionScope, PolicyContext, PolicyVisibilityContext, SearchQuery, ToolExecutionRecorder,
+        ExecutionScope, PolicyContext, PolicyVisibilityContext, ToolContext, ToolExecutionRecorder,
     },
     domain::{
-        MemoryItem, PermissionMode, PolicyDecision, ToolCall, ToolCallResolution, ToolResult,
+        PermissionMode, PolicyDecision, ToolCall, ToolCallResolution, ToolResult, new_call_id,
+        new_execution_id,
     },
 };
 use proteus_core::{
@@ -99,12 +100,12 @@ fn process_search_config() -> AppConfig {
         ],
         "handshake_timeout_ms": 3_000,
         "exports": {
-            "search": {"execution-boundary-search": {"timeout_ms": 3_000}},
+            "tool": {"execution-boundary-search": {"timeout_ms": 3_000}},
         },
     }))
     .expect("valid process component");
     let mut config = test_model::config();
-    config.modules.search = Some("execution-boundary-search".to_owned());
+    config.tools.enabled = vec!["search".to_owned()];
     config
         .components
         .insert("execution-boundary-component".to_owned(), component);
@@ -130,15 +131,25 @@ async fn process_search_runs_through_execution_context_without_chat_identity() {
         )
         .unwrap();
 
-    let chunks = execution
-        .search
-        .search(SearchQuery::new(
-            "needle",
-            workspace.path().to_path_buf(),
-            5,
-        ))
+    let result = execution
+        .tools
+        .get("search")
+        .unwrap()
+        .invoke(
+            &ToolCall::new(
+                new_call_id(),
+                "search",
+                json!({"query": "needle", "max_results": 5}),
+            ),
+            ToolContext::new(
+                workspace.path().to_path_buf(),
+                ExecutionAttribution::detached(new_execution_id()),
+            ),
+        )
         .await
         .expect("process-backed search through generic execution boundary");
+    let chunks: Vec<proteus_contracts::domain::ContextChunk> =
+        serde_json::from_value(result.metadata["chunks"].clone()).unwrap();
 
     assert_eq!(chunks.len(), 1);
     assert_eq!(chunks[0].source, "process:execution-boundary-search");
@@ -415,7 +426,7 @@ fn phase8_memory_config(record_path: &Path) -> AppConfig {
         ],
         "handshake_timeout_ms": 3_000,
         "exports": {
-            "memory": {
+            "tool": {
                 "phase8-memory": {
                     "timeout_ms": 5_000,
                 }
@@ -424,10 +435,10 @@ fn phase8_memory_config(record_path: &Path) -> AppConfig {
     }))
     .expect("valid Phase 8B memory component");
     let mut config = test_model::config();
-    config.modules.memory = Some("phase8-memory".to_owned());
-    config.tools.enabled.clear();
+    config.tools.enabled = vec!["remember_fact".to_owned()];
+    test_model::add_allow_all_policy(&mut config);
     config.module_config.insert(
-        "memory".to_owned(),
+        "tool".to_owned(),
         [(
             "phase8-memory".to_owned(),
             json!({"record_path": record_path}),
@@ -454,27 +465,23 @@ async fn phase8_memory_runtime(
 }
 
 #[tokio::test]
-async fn agent_runtime_remember_uses_detached_memory_v2_without_tool_or_turn_state() {
+async fn agent_runtime_memory_tool_uses_detached_attribution_and_records_without_a_turn() {
     let workspace = tempfile::tempdir().expect("workspace");
     let state = tempfile::tempdir().expect("state root");
     let record_path = state.path().join("memory-records.jsonl");
     let runtime = phase8_memory_runtime(workspace.path(), state.path(), &record_path).await;
 
-    assert!(
-        runtime.tool_entries().await.is_empty(),
-        "remember_fact must be disabled"
-    );
-    runtime
-        .remember(
-            MemoryItem::new(
-                "preference",
-                "direct user memory",
-                json!({"source": "slash"}),
-            ),
+    assert_eq!(runtime.tool_entries().await.len(), 1);
+    let result = runtime
+        .execute_tool(
+            ToolCall::new(new_call_id(), "remember_fact", json!({
+                "kind": "preference", "content": "direct user memory", "metadata": {"source": "slash"}
+            })),
             CancellationToken::new(),
         )
         .await
         .expect("top-level remember");
+    assert!(result.ok, "{result:?}");
 
     let record: serde_json::Value = serde_json::from_str(
         std::fs::read_to_string(&record_path)
@@ -484,23 +491,21 @@ async fn agent_runtime_remember_uses_detached_memory_v2_without_tool_or_turn_sta
             .expect("one memory record"),
     )
     .expect("memory record JSON");
-    assert_eq!(record["method"], "remember");
+    assert_eq!(record["method"], "invoke");
     assert_eq!(record["item"]["content"], "direct user memory");
     assert!(record["attribution"]["execution_id"].is_string());
     assert!(record["attribution"]["agent"].is_null());
     assert_eq!(runtime.history_len().await, 0);
 
-    assert!(
-        !runtime
-            .session_dir()
-            .expect("configured session path")
-            .exists(),
-        "memory must not create a session journal"
-    );
+    let projection = SessionStore::open(runtime.session_dir().unwrap().to_path_buf())
+        .unwrap()
+        .load_projection()
+        .unwrap();
+    assert!(projection.records.iter().any(|record| matches!(&record.entry, JournalEntry::ToolResultRecorded(tool) if tool.result.call_id == result.call_id)));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn agent_runtime_memory_cancel_settles_and_keeps_process_sibling_alive() {
+async fn agent_runtime_memory_tool_cancel_settles_and_keeps_process_sibling_alive() {
     let workspace = tempfile::tempdir().expect("workspace");
     let state = tempfile::tempdir().expect("state root");
     let record_path = state.path().join("memory-records.jsonl");
@@ -517,14 +522,16 @@ async fn agent_runtime_memory_cancel_settles_and_keeps_process_sibling_alive() {
         let cancel_marker = cancel_marker.clone();
         async move {
             runtime
-                .remember(
-                    MemoryItem::new(
-                        "fact",
-                        "blocked",
+                .execute_tool(
+                    ToolCall::new(
+                        new_call_id(),
+                        "remember_fact",
                         json!({
-                            "wait_for_cancel": true,
-                            "start_marker": started,
-                            "cancel_marker": cancel_marker,
+                            "kind": "fact", "content": "blocked", "metadata": {
+                                "wait_for_cancel": true,
+                                "start_marker": started,
+                                "cancel_marker": cancel_marker,
+                            }
                         }),
                     ),
                     cancellation,
@@ -534,21 +541,27 @@ async fn agent_runtime_memory_cancel_settles_and_keeps_process_sibling_alive() {
     });
     wait_for_file(&started).await;
 
-    runtime
-        .remember(
-            MemoryItem::new("fact", "sibling", json!({})),
+    let sibling = runtime
+        .execute_tool(
+            ToolCall::new(
+                new_call_id(),
+                "remember_fact",
+                json!({"kind": "fact", "content": "sibling"}),
+            ),
             CancellationToken::new(),
         )
         .await
         .expect("concurrent sibling remember");
+    assert!(sibling.ok, "{sibling:?}");
     cancellation.cancel();
 
-    let error = timeout(Duration::from_secs(2), blocked)
+    let result = timeout(Duration::from_secs(2), blocked)
         .await
         .expect("canceled memory settled")
         .expect("canceled memory task joined")
-        .expect_err("blocked memory must be canceled");
-    assert!(format!("{error:#}").contains("canceled"), "{error:#}");
+        .expect("canceled tool result");
+    assert!(!result.ok);
+    assert_eq!(result.metadata["canceled"], true);
     wait_for_file(&cancel_marker).await;
     let records = std::fs::read_to_string(&record_path).expect("memory records");
     assert!(records.contains("sibling"));
@@ -556,7 +569,7 @@ async fn agent_runtime_memory_cancel_settles_and_keeps_process_sibling_alive() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn admitted_process_memory_keeps_old_config_across_runtime_reload() {
+async fn admitted_process_memory_tool_keeps_old_config_across_runtime_reload() {
     let workspace = tempfile::tempdir().expect("workspace");
     let state = tempfile::tempdir().expect("state");
     let old_records = state.path().join("old-memory.jsonl");
@@ -577,12 +590,10 @@ async fn admitted_process_memory_keeps_old_config_across_runtime_reload() {
         let started = started.clone();
         async move {
             runtime
-                .remember(
-                    MemoryItem::new(
-                        "fact",
-                        "old selected store",
-                        json!({"start_marker": started, "delay_ms": 250}),
-                    ),
+                .execute_tool(
+                    ToolCall::new(new_call_id(), "remember_fact", json!({
+                        "kind": "fact", "content": "old selected store", "metadata": {"start_marker": started, "delay_ms": 250}
+                    })),
                     CancellationToken::new(),
                 )
                 .await
@@ -598,17 +609,23 @@ async fn admitted_process_memory_keeps_old_config_across_runtime_reload() {
         .await
         .expect("reload memory assembly");
 
-    old_call
+    let old_result = old_call
         .await
         .expect("old remember joined")
         .expect("old remember completed");
-    runtime
-        .remember(
-            MemoryItem::new("fact", "new selected store", json!({})),
+    assert!(old_result.ok, "{old_result:?}");
+    let new_result = runtime
+        .execute_tool(
+            ToolCall::new(
+                new_call_id(),
+                "remember_fact",
+                json!({"kind": "fact", "content": "new selected store"}),
+            ),
             CancellationToken::new(),
         )
         .await
         .expect("new remember completed");
+    assert!(new_result.ok, "{new_result:?}");
 
     assert!(
         std::fs::read_to_string(old_records)

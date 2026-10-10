@@ -69,14 +69,12 @@ Wire shape и правила validation — в
 |---|---|---|---|---|
 | `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v4` | `hook.instructions`, `hook.output_budget`, `hook.dcp` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
-| `search` | `select_one` | `modules.search` | да | `rg` |
-| `memory` | `select_one` | `modules.memory` | да | `jsonl`, `sqlite` |
-| `context` | `select_one` | `modules.context` | да | `simple`, `repo_aware`, `codex_context` |
+| `context` | `select_one` | `modules.context` | да, `context/v3` | `simple`, `repo_aware`, `codex_context` |
 | `policy` | `select_one` | `modules.policy` | да | `allow_all`, `ask_write`, `codex_policy`, `opencode_policy` |
 | `compactor` | `select_one` | `modules.compactor` | да | `codex` |
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да, `tool/v5` | `reference.tools` и узкие варианты |
-| `context_provider` | `ordered_many` | предоставленные реализации + настройки контекста | да, `context_provider/v3` | `skills` |
+| `context_provider` | `ordered_many` | предоставленные реализации + настройки контекста | да, `context_provider/v4` | `skills`, `rg_search`, `jsonl_memory`, `sqlite_memory` |
 | `model` | `select_one` | активный профиль модели | да, `model/v12` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
 
 `select_one` означает одну выбранную реализацию, `ordered_many` — несколько
@@ -101,21 +99,34 @@ Builder отдельно показывает обнаруженные выкл�
 
 ## Как Подключить Модуль
 
-В примере агент выбирает `sqlite` для слота `memory`. Запись `components`
-указывает, какую программу запустить, `exports` объявляет реализацию слота,
-а `module_config` передаёт ей настройки:
+В примере память предоставляется как tools и источник контекста. Запись
+`components` указывает программу, `exports` объявляет реализации существующих
+слотов, а `module_config` передаёт каждой её настройки:
 
 ```toml
 [modules]
-memory = "sqlite"
+context = "simple"
+
+[tools]
+enabled = ["remember_fact", "recall_memory"]
 
 [components.reference-memory]
 command = "proteus-reference-module"
 
-[components.reference-memory.exports.memory.sqlite]
+[components.reference-memory.exports.tool.sqlite_memory]
 timeout_ms = 30000
 
-[module_config.memory.sqlite]
+[components.reference-memory.exports.context_provider.sqlite_memory]
+
+[components.reference-memory.exports.context.simple]
+
+[module_config.context.simple]
+memory_provider = "sqlite_memory"
+
+[module_config.tool.sqlite_memory]
+path = ".proteus/memory.sqlite"
+
+[module_config.context_provider.sqlite_memory]
 path = ".proteus/memory.sqlite"
 ```
 
@@ -138,7 +149,7 @@ path = ".proteus/memory.sqlite"
    но доступные операции определяются отдельно для каждого вызова.
 
 `examples/configs/proteus.one-component.example.toml` показывает модуль,
-который предоставляет десять связанных реализаций в одном процессе. Проверка
+который предоставляет несколько связанных реализаций в одном процессе. Проверка
 подтверждает общий процесс, вложенные вызовы, адресную отмену и сохранение
 истории выполнения. Модуль с одной реализацией работает по тем же правилам.
 
@@ -159,10 +170,10 @@ Core запускает модуль и отправляет ему первое
     "component_id": "reference-capabilities",
     "exports": [
       {
-        "slot": "search",
-        "module_id": "rg",
-        "contract_version": "v2",
-        "composition": "select_one",
+        "slot": "context_provider",
+        "module_id": "rg_search",
+        "contract_version": "v4",
+        "composition": "ordered_many",
         "module_config": {},
         "host_features": []
       }
@@ -315,27 +326,6 @@ authority: direct process execution внутри него отсутствует
 Completion review повторно запускает проверки в том же turn; каждая попытка
 получает собственные tool call ids, а final history сохраняет ответы всех попыток.
 
-### Search
-
-`SearchQuery -> Vec<ContextChunk>`. Reference `rg` использует ripgrep.
-`starts_with` может указывать на отдельный файл; имя файла, включая двоеточия,
-сохраняется в результате. Отсутствие совпадений возвращает пустой список,
-ошибка regex или запуска поиска — ошибку invocation. Лимит результатов
-ограничивает найденные совпадения, а не служебные записи ripgrep.
-Prefix — строковый фильтр относительного пути, а не обязательный существующий
-root. Начальный `./` не влияет на совпадение; лимит применяется после фильтров.
-External example: `examples/modules/search-process/search.py`.
-
-### Memory
-
-`memory/v2`: `remember` и `recall` с canonical `MemoryItem` / `MemoryQuery` и
-обязательной `ExecutionAttribution`. Cancellation остаётся host-owned и
-доставляется активной invocation через protocol cancel.
-`jsonl` и `sqlite` имеют одинаковую protocol authority; различается только
-storage implementation. `recall` с `limit = 0` возвращает пустой список у обеих
-реализаций.
-Некорректная JSON metadata в SQLite — явная ошибка чтения, без подмены на `null`.
-
 ### Context И Context Provider
 
 `ContextChunk.render_mode` — обязательное typed поле: `source_annotated`
@@ -347,14 +337,24 @@ null или отсутствующий режим — ошибка, metadata о�
 Reference OpenAI/Anthropic используют общий форматтер; новый provider должен
 сохранить эту семантику при своём преобразовании request.
 
-Context builder получает callbacks `host.search.query`,
-`host.memory.recall` и `host.context.provide`. Provider — отдельный
-`ordered_many` contract без дополнительных прав. Reference `skills`
-возвращает docs-on-disk skill context.
+Context builder получает только callback `host.context.provide`. Provider —
+отдельный `ordered_many` contract без callbacks; он возвращает structured
+`ContextChunk`, а не текст tool result. Reference `skills` возвращает docs-on-disk
+skill context; `rg_search`, `jsonl_memory` и `sqlite_memory` — результаты поиска
+и чтения памяти. Core пересылает opaque `input.metadata` без интерпретации:
+reference context передаёт там canonical `SearchQuery` либо `MemoryQuery`.
+
+`context/v3` получает task и обязательную `ExecutionAttribution`.
+Host связывает каждый provider request с той же attribution, skills и cancellation
+активной execution; conversation и model call для этого не требуются.
+В `simple`, `repo_aware` и `codex_context` автоматическое чтение задаётся
+`search_provider` / `memory_provider` в config самого context export. Без
+соответствующего id оно отключено. Provider ids не выбираются по имени tool;
+context не получает `host.tools.execute` или права на запись памяти.
 
 Profile `context-search-chatgpt` демонстрирует замену `codex_context` на
-существующий `repo_aware` через тот же `context/v2`: предварительный поиск
-выполняется callback-ом к выбранному search module. Workflow и Core не знают
+существующий `repo_aware` через тот же `context/v3`: предварительный поиск
+выполняется callback-ом к явно указанному context provider. Workflow и Core не знают
 об имени экспериментального profile. Настройки и отличия — в
 [configuration.md](../guides/configuration.md).
 
@@ -456,11 +456,33 @@ Tool implementation проверяет `workdir` относительно worksp
 pinned Codex. Синтаксис задают profile instructions; Core его не разбирает.
 Граница и provenance — в
 [UPSTREAM.md](../../modules/reference/codex-patch/UPSTREAM.md).
-Search и memory сохраняют отдельные contracts: ими также пользуются context
-callbacks и команды приложения.
+Поиск и память также не имеют собственных слотов:
+
+- `tool/rg_search` предоставляет `search` (`ReadOnly`, parallel). Structured
+  chunks находятся в `ToolResult.metadata.chunks`; алгоритм использует ripgrep.
+  `starts_with` — строковый фильтр относительного пути, а не обязательный
+  существующий root; начальный `./` не влияет на совпадение. Имя файла, включая
+  двоеточия, сохраняется. Лимит применяется после фильтров и считает совпадения,
+  не служебные записи rg. Нет совпадений — успешный пустой результат; ошибка
+  regex или запуска — ошибка invocation. Внешний пример:
+  `examples/modules/search-process/search.py`.
+- `tool/jsonl_memory` и `tool/sqlite_memory` предоставляют `remember_fact`
+  (`WritesFiles`) и `recall_memory` (`ReadOnly`, parallel). Read result сохраняет
+  canonical `MemoryItem` в `metadata.items`; `limit = 0` возвращает пустой список.
+  JSONL читает первые substring-совпадения, SQLite использует FTS. Некорректная
+  JSON metadata в SQLite — явная ошибка без подмены на `null`.
+- Эти exports не входят в `reference.tools`. Выбирайте одну реализацию для
+  каждого имени tool; дубликаты отклоняются общей registry validation.
+
+Одна implementation может также предоставить одноимённый `context_provider`
+export для автоматического чтения. Общий алгоритм/хранилище остаётся внутри
+implementation, без прямых вызовов между exports и объединения authority.
+Tool и provider имеют отдельные config; для общей памяти задайте одинаковый
+`path` обоим exports. `/remember` вызывает enabled `remember_fact` через обычный
+top-level tool path с policy/approval, cancellation и journal.
 
 Host-owned `SkillRuntimeSettings` поступают каждому tool invocation и context
-provider из immutable сборки. `context_provider/v3` добавляет read-only метод
+provider из immutable сборки. `context_provider/v4` содержит read-only метод
 `catalog` с `cwd` и settings: результат — `null` либо валидированный `SkillCatalog`.
 Чтение не требует conversation/model, не добавляет callbacks и не меняет
 composition. Discovery и загрузка навыка принадлежат implementation; Core только
@@ -627,20 +649,20 @@ memory/policy/context/compactor/workflow paths, включая callbacks.
 
 ### Как Проследить Один Вызов
 
-Пример — вызов `search` для выбранного export `search/<module_id>`.
+Пример — вызов `search` для выбранного export `tool/rg_search`.
 Эти файлы показывают путь от общего slot до конкретного алгоритма:
 
 | Шаг | Где смотреть | Ответственность |
 |---|---|---|
-| Контракт слота | [search_backend.rs](../../crates/proteus-contracts/src/contracts/search_backend.rs) | `SearchBackend::search` принимает `SearchQuery` и возвращает `Vec<ContextChunk>`; `ProcessSearchResponse` задаёт форму результата на process-границе. |
-| Подключение выбранного export | [components.rs](../../crates/proteus-core/src/core/module_catalog/components.rs) и [search.rs](../../crates/proteus-core/src/process_adapters/search.rs) | Catalog регистрирует factory `ProcessSearchBackend` для каждого configured search export; runtime выбирает её по `modules.search`. Созданный adapter реализует общий trait и вызывает метод `search`. |
+| Контракт слота | [tool.rs](../../crates/proteus-contracts/src/contracts/tool.rs) и [process_slots.rs](../../crates/proteus-contracts/src/contracts/process_slots.rs) | Общий `tool/v5` принимает `ToolCall` и возвращает `ToolResult`; canonical `SearchQuery` принадлежит [domain/search.rs](../../crates/proteus-contracts/src/domain/search.rs), не отдельному slot. |
+| Подключение выбранного export | [components.rs](../../crates/proteus-core/src/core/module_catalog/components.rs) и [tool.rs](../../crates/proteus-core/src/process_adapters/tool.rs) | Catalog регистрирует process tool provider; `list` обнаруживает `search`, `tools.enabled` включает его. Generic adapter вызывает `invoke`. |
 | Вызов компонента | [client.rs](../../crates/proteus-core/src/process_adapters/client.rs) и [broker.rs](../../crates/proteus-module-protocol/src/v3/broker.rs) | `ProcessExportClient` передаёт typed запрос и ссылку на export в `ComponentBroker`; broker управляет вызовом и общим process lifecycle компонента. |
-| Выбор export внутри модуля | [dispatch.rs](../../modules/reference/process-module/src/dispatch.rs) и [exports.rs](../../modules/reference/process-module/src/exports.rs) | Процессный модуль находит export по `slot/module_id`, проверяет допустимость метода и вызывает реализацию поиска; результат упаковывается в `ProcessSearchResponse`. |
-| Алгоритм reference-модуля | [rg-search/src/lib.rs](../../modules/reference/rg-search/src/lib.rs) | `RgSearchModule` разбирает `SearchQuery` и выполняет поиск через `rg`. |
+| Выбор export внутри модуля | [dispatch.rs](../../modules/reference/process-module/src/dispatch.rs) и [exports.rs](../../modules/reference/process-module/src/exports.rs) | Процессный модуль находит export по `slot/module_id`, проверяет метод и выбирает tool по `call.name`; результат упаковывается в `ProcessToolInvokeResponse`. |
+| Алгоритм reference-модуля | [rg-search/src/tool.rs](../../modules/reference/rg-search/src/tool.rs) и [lib.rs](../../modules/reference/rg-search/src/lib.rs) | Adapter формирует `SearchQuery` из args/cwd; `run_rg` выполняет поиск. [provider.rs](../../modules/reference/rg-search/src/provider.rs) использует тот же локальный алгоритм для чтения контекста. |
 
 Один configured component может содержать несколько exports и общий процесс,
 но каждый вызов указывает конкретный export. Алгоритм `rg` можно заменить
-другой реализацией того же `search` contract и выбрать её export в config
+другой реализацией того же tool/provider contract и выбрать её export в config
 без изменения core или соседних modules.
 
 ## Как Добавить Модуль

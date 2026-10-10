@@ -71,9 +71,9 @@ mod tests {
     #[test]
     fn process_module_is_reported_as_process_source() {
         let entry = ModuleCatalogEntrySummary {
-            slot: "search".to_owned(),
-            id: "rg".to_owned(),
-            manifest: ModuleManifest::process("rg", ModuleKind::Search, "v1", &["process"]),
+            slot: "tool".to_owned(),
+            id: "rg_search".to_owned(),
+            manifest: ModuleManifest::process("rg_search", ModuleKind::Tool, "v5", &["process"]),
         };
 
         assert_eq!(module_source(&entry), ModuleSourceTopology::Process);

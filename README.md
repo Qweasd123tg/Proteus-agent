@@ -115,18 +115,33 @@ proteus --config codex-chatgpt "Расскажи о структуре этог�
 
 ```toml
 [modules]
-search = "python_rg"
+context = "simple"
+
+[tools]
+enabled = ["search"]
 
 [components.python-search]
 command = "python3"
 args = ["/path/to/search.py"]
 
-[components.python-search.exports.search.python_rg]
+[components.python-search.exports.tool.python_rg]
 timeout_ms = 60000
+
+[components.python-search.exports.context_provider.python_rg]
+
+[components.reference-context]
+command = "proteus-reference-module"
+
+[components.reference-context.exports.context.simple]
+
+[module_config.context.simple]
+search_provider = "python_rg"
 ```
 
 `components` содержит команды запуска, `exports` — доступные реализации
-слотов, а `modules` выбирает используемую реализацию. Внутренние настройки
+слотов. `modules` выбирает single-selection реализацию, `tools.enabled` — tools,
+а настройки context — providers для автоматического чтения. Поиск и память
+не требуют собственных слотов. Внутренние настройки
 алгоритма задаются в `module_config.<slot>.<module_id>`.
 
 Один процесс может предоставлять несколько слотов. Их вызовы управляются

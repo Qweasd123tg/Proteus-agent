@@ -149,7 +149,7 @@ impl AppHistorySummary {
     }
 }
 
-/// Результат явной записи пользователя в выбранный `MemoryStore`.
+/// Результат явной записи пользователя через `remember_fact` tool.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AppRememberResult {

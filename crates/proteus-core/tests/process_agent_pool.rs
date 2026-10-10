@@ -108,6 +108,14 @@ fn write_tool_surface_child_config(
         .expect("canonical policy worker path");
     let policy_worker =
         serde_json::to_string(&policy_worker.to_string_lossy()).expect("quote policy worker path");
+    let memory_component = if enabled_tools.contains(&"remember_fact") {
+        format!(
+            "\n[components.fixture-memory]\ncommand = {}\n[components.fixture-memory.exports.tool.jsonl_memory]\n",
+            serde_json::to_string(&test_model::reference_module()).expect("quote memory worker")
+        )
+    } else {
+        String::new()
+    };
     let enabled_tools = serde_json::to_string(enabled_tools).expect("serialize enabled tools");
     std::fs::write(
         &config_path,
@@ -143,7 +151,8 @@ system_instructions = "Report only from this peer's configured tool surface."
 [tools]
 enabled = {enabled_tools}
 "#
-        ) + &test_model::toml_component(),
+        ) + &test_model::toml_component()
+            + &memory_component,
     )
     .expect("write tool-surface child config");
     config_path
@@ -278,7 +287,7 @@ async fn process_peers_derive_distinct_tool_surfaces_from_child_configs() {
             },
             {
                 "name": "memory",
-                "description": "Peer with memory facade",
+                "description": "Peer with a process memory tool",
                 "config": memory_config.to_string_lossy(),
                 "timeout_ms": 60000
             }

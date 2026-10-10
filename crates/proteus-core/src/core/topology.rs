@@ -208,8 +208,6 @@ mod tests {
                 "tool_exposure",
                 "model",
                 "policy",
-                "search",
-                "memory",
                 "hook",
             ]
         );
@@ -223,7 +221,7 @@ mod tests {
         };
         assert_eq!(category("workflow"), "orchestrator");
         assert_eq!(category("model"), "pipeline");
-        assert_eq!(category("search"), "backend");
+        assert_eq!(category("context"), "pipeline");
 
         let required = |id: &str| {
             slots
@@ -232,7 +230,7 @@ mod tests {
                 .is_some_and(|slot| slot.required)
         };
         assert!(required("workflow"));
-        assert!(!required("search"));
+        assert!(!required("model"));
         assert!(!slots.iter().any(|slot| slot.id == "tool"));
     }
 }

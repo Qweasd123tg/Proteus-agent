@@ -6,7 +6,6 @@ use std::sync::{
 use proteus_contracts::{
     contracts::{
         COMPACTOR_HOST_COMPLETE_MODEL_METHOD, CONTEXT_HOST_PROVIDER_METHOD,
-        CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD,
         WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
         WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
         WORKFLOW_HOST_EXECUTE_TOOL_METHOD, WORKFLOW_HOST_EXECUTE_TOOLS_METHOD,
@@ -14,8 +13,8 @@ use proteus_contracts::{
         WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
     },
     process_module::{
-        CompactorModuleHost, ContextBuilderModuleHost, MemoryModuleHost, ProcessModuleError,
-        ToolModuleHost, WorkflowModuleHost,
+        CompactorModuleHost, ContextBuilderModuleHost, ProcessModuleError, ToolModuleHost,
+        WorkflowModuleHost,
     },
 };
 use serde_json::{Value, json};
@@ -106,30 +105,9 @@ impl ToolModuleHost for ToolHostBridge {
     }
 }
 
-pub struct MemoryHostBridge(pub HostBridge);
-
-impl MemoryModuleHost for MemoryHostBridge {
-    fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
-        Ok(self.0.is_cancelled())
-    }
-}
-
 pub struct ContextHostBridge(pub HostBridge);
 
 impl ContextBuilderModuleHost for ContextHostBridge {
-    fn search_json(&self, query_json: String) -> Result<String, ProcessModuleError> {
-        context_call(&self.0, CONTEXT_HOST_SEARCH_METHOD, "query", query_json)
-    }
-
-    fn recall_memory_json(&self, query_json: String) -> Result<String, ProcessModuleError> {
-        context_call(
-            &self.0,
-            CONTEXT_HOST_RECALL_MEMORY_METHOD,
-            "query",
-            query_json,
-        )
-    }
-
     fn context_provider_json(
         &self,
         provider_id: String,
@@ -153,26 +131,6 @@ impl ContextBuilderModuleHost for ContextHostBridge {
             }
             Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
-    }
-}
-
-fn context_call(
-    bridge: &HostBridge,
-    method: &str,
-    field: &str,
-    payload: String,
-) -> Result<String, ProcessModuleError> {
-    let value: Value = match serde_json::from_str(payload.as_str()) {
-        Ok(value) => value,
-        Err(error) => {
-            return Err(ProcessModuleError::new(error.to_string()));
-        }
-    };
-    match bridge.call(method, single_param(field, value)) {
-        Ok(value) => {
-            json_string(value).map_or_else(|error| Err(ProcessModuleError::new(error)), Ok)
-        }
-        Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
     }
 }
 

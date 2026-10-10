@@ -21,7 +21,6 @@ name = "opencode-experimental"
 # Experimental OpenCode-shaped profile: reuse codex_context/codex compactor
 # и codex loop, opencode-специфика — policy, tool surface и prompt.
 workflow = "coding.codex_loop"
-search = "rg"
 context = "codex_context"
 policy = "opencode_policy"
 compactor = "codex"
@@ -40,7 +39,9 @@ command = "proteus-reference-module"
 command = "proteus-reference-module"
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
-[components.reference-capabilities.exports.search.rg]
+[components.reference-capabilities.exports.tool.rg_search]
+
+[components.reference-capabilities.exports.context_provider.rg_search]
 
 [components.reference-capabilities.exports.context_provider.skills]
 
@@ -92,6 +93,7 @@ pattern_args = ["path", "paths"]
 # Context как у upstream: только project instructions (AGENTS.md и аналоги)
 # + environment; модель исследует репо сама через tools.
 [module_config.context.codex_context]
+search_provider = "rg_search"
 providers = ["project_instructions", "skills", "environment"]
 max_context_bytes = 60000
 max_bytes_per_file = 12000

@@ -123,21 +123,21 @@ fn inspect_plan_command_parses_text_and_json() {
 #[test]
 fn inspect_plan_reports_blocking_selection_without_starting_runtime() {
     let mut config = crate::test_model::config();
-    config.modules.search = Some("missing-search".to_owned());
+    config.modules.context = Some("missing-context".to_owned());
     let dir = tempfile::tempdir().expect("workspace");
     let (plan, _) = resolve_cli_assembly(&config, None, dir.path(), config.permissions.mode)
         .expect("diagnostic plan");
 
     let rendered = render_inspect_plan(&plan, InspectPlanFormat::Text).expect("render plan");
     assert!(rendered.contains("состояние: запуск заблокирован"));
-    assert!(rendered.contains("active module is not registered: search/missing-search"));
+    assert!(rendered.contains("active module is not registered: context/missing-context"));
     assert!(plan.ensure_valid().is_err());
 }
 
 #[test]
 fn inspect_topology_reports_invalid_backend_without_building_it() {
     let mut config = crate::test_model::config();
-    config.modules.search = Some("missing-search".to_owned());
+    config.modules.context = Some("missing-context".to_owned());
 
     let snapshot = build_cli_topology(
         &config,
@@ -147,11 +147,11 @@ fn inspect_topology_reports_invalid_backend_without_building_it() {
     )
     .expect("best-effort topology snapshot");
 
-    assert!(snapshot.slots.iter().any(|slot| slot.id == "search"));
+    assert!(snapshot.slots.iter().any(|slot| slot.id == "context"));
     assert!(snapshot.warnings.iter().any(|warning| {
         warning
             .message
-            .contains("active module is not registered: search/missing-search")
+            .contains("active module is not registered: context/missing-context")
     }));
 }
 
@@ -163,11 +163,10 @@ fn read_only_cli_paths_do_not_start_unrelated_process_components() {
     let workflow_marker = dir.path().join("process-workflow-started");
     let mut config = crate::test_model::config();
     config.modules.workflow = Some("workflow-marker".to_owned());
-    config.modules.search = Some("search-marker".to_owned());
     config.modules.compactor = Some("compactor-marker".to_owned());
     config.agent_control.surface = proteus_core::core::AgentControlSurface::None;
     config.tools.path = None;
-    config.tools.enabled = vec!["search".to_owned()];
+    config.tools.enabled = vec!["request_user_input".to_owned()];
     config.components = serde_json::from_value(serde_json::json!({
         "workflow-fixture": {
             "command": "/bin/sh",
@@ -178,7 +177,7 @@ fn read_only_cli_paths_do_not_start_unrelated_process_components() {
         "search-fixture": {
             "command": "/bin/sh",
             "args": ["-c", format!("touch {}", marker.display())],
-            "exports": {"search": {"search-marker": {"timeout_ms": 1000}}}
+            "exports": {"context": {"search-marker": {"timeout_ms": 1000}}}
         },
         "compactor-fixture": {
             "command": "/bin/sh",
@@ -886,13 +885,13 @@ fn doctor_formats_timeouts_for_readability() {
 fn module_list_output_contains_catalog_rows() {
     let manifests = vec![ModuleManifest::builtin(
         "rg",
-        ModuleKind::Search,
+        ModuleKind::Tool,
         &["workspace", "ripgrep"],
     )];
     let rendered = render_module_list(&manifests);
 
     assert!(rendered.contains("kind"));
-    assert!(rendered.contains("search"));
+    assert!(rendered.contains("tool"));
     assert!(rendered.contains("rg"));
     assert!(rendered.contains("workspace,ripgrep"));
 }
@@ -902,8 +901,13 @@ fn tool_list_output_contains_registered_tools() {
     let mut config = crate::test_model::config();
     config.tools.path = None;
     crate::test_model::add_direct_patch_tool(&mut config);
-    // Verify both process-provided patch and the remaining host facade source.
-    config.tools.enabled = vec!["apply_patch".to_owned(), "search".to_owned()];
+    crate::test_model::add_search_tool(&mut config);
+    // Verify process-provided editing/search and the host user-input transport.
+    config.tools.enabled = vec![
+        "apply_patch".to_owned(),
+        "search".to_owned(),
+        "request_user_input".to_owned(),
+    ];
     let dir = tempfile::tempdir().expect("temp dir");
     let (plan, catalog) =
         resolve_cli_assembly(&config, None, dir.path(), config.permissions.mode).unwrap();
@@ -913,6 +917,7 @@ fn tool_list_output_contains_registered_tools() {
     assert!(rendered.contains("name"));
     assert!(rendered.contains("apply_patch"));
     assert!(rendered.contains("process:test-patch/direct_patch"));
+    assert!(rendered.contains("process:test-search/rg_search"));
     assert!(rendered.contains("builtin:builtin"));
     assert!(rendered.contains("WritesFiles"));
     assert!(rendered.contains("search"));

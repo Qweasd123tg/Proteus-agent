@@ -10,16 +10,11 @@ use serde::{Deserialize, Serialize};
 use crate::{
     contracts::ExecutionAttribution,
     domain::{
-        AgentTask, ContextBundle, ContextChunk, MemoryItem, MemoryQuery, PolicyDecision, ToolCall,
-        ToolResult, ToolSpec,
+        AgentTask, ContextBundle, ContextChunk, PolicyDecision, ToolCall, ToolResult, ToolSpec,
     },
 };
 
 use super::ToolExposureInput;
-
-pub const PROCESS_MEMORY_CONTRACT_VERSION: &str = "v2";
-pub const PROCESS_MEMORY_REMEMBER_METHOD: &str = "remember";
-pub const PROCESS_MEMORY_RECALL_METHOD: &str = "recall";
 
 pub const PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION: &str = "v4";
 pub const PROCESS_TOOL_EXPOSURE_SELECT_METHOD: &str = "select";
@@ -28,13 +23,11 @@ pub const PROCESS_POLICY_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_POLICY_EVALUATE_METHOD: &str = "evaluate";
 pub const PROCESS_POLICY_VISIBILITY_METHOD: &str = "evaluate_visibility";
 
-pub const PROCESS_CONTEXT_CONTRACT_VERSION: &str = "v2";
+pub const PROCESS_CONTEXT_CONTRACT_VERSION: &str = "v3";
 pub const PROCESS_CONTEXT_BUILD_METHOD: &str = "build";
-pub const CONTEXT_HOST_SEARCH_METHOD: &str = "host.search.query";
-pub const CONTEXT_HOST_RECALL_MEMORY_METHOD: &str = "host.memory.recall";
 pub const CONTEXT_HOST_PROVIDER_METHOD: &str = "host.context.provide";
 
-pub const PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION: &str = "v3";
+pub const PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION: &str = "v4";
 pub const PROCESS_CONTEXT_PROVIDER_METHOD: &str = "provide";
 pub const PROCESS_CONTEXT_PROVIDER_CATALOG_METHOD: &str = "catalog";
 
@@ -53,20 +46,6 @@ impl<T> ProcessModuleResponse<T> {
     pub fn new(result: T) -> Self {
         Self { result }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ProcessMemoryRememberInput {
-    pub item: MemoryItem,
-    pub attribution: ExecutionAttribution,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ProcessMemoryRecallInput {
-    pub query: MemoryQuery,
-    pub attribution: ExecutionAttribution,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,18 +76,7 @@ pub struct ProcessPolicyVisibilityInput {
 #[serde(deny_unknown_fields)]
 pub struct ProcessContextInput {
     pub task: AgentTask,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProcessContextSearchInput {
-    pub query: super::SearchQuery,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ProcessContextRecallInput {
-    pub query: MemoryQuery,
+    pub attribution: ExecutionAttribution,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -133,6 +101,7 @@ pub struct ProcessToolInvokeInput {
 #[serde(deny_unknown_fields)]
 pub struct ProcessContextProviderRequest {
     pub input: ProcessContextProviderInput,
+    pub attribution: ExecutionAttribution,
     pub skills: crate::domain::SkillRuntimeSettings,
 }
 
@@ -145,8 +114,6 @@ pub struct ProcessSkillCatalogInput {
 
 pub type ProcessSkillCatalogResponse = ProcessModuleResponse<Option<crate::domain::SkillCatalog>>;
 
-pub type ProcessMemoryRememberResponse = ProcessModuleResponse<()>;
-pub type ProcessMemoryRecallResponse = ProcessModuleResponse<Vec<MemoryItem>>;
 pub type ProcessToolExposureResponse = ProcessModuleResponse<super::ToolExposureOutput>;
 pub type ProcessPolicyResponse = ProcessModuleResponse<PolicyDecision>;
 pub type ProcessContextResponse = ProcessModuleResponse<ContextBundle>;
@@ -255,42 +222,5 @@ mod tests {
         );
         serde_json::from_value::<ProcessToolInvokeInput>(legacy_owner)
             .expect_err("tool v1 owner must not be accepted by v2");
-    }
-
-    #[test]
-    fn memory_v2_requires_execution_attribution_and_rejects_v1_payloads() {
-        let attribution = ExecutionAttribution::detached(new_execution_id());
-        let remember = ProcessMemoryRememberInput {
-            item: MemoryItem::new("fact", "detached memory", serde_json::Value::Null),
-            attribution,
-        };
-        let value = serde_json::to_value(&remember).expect("memory input");
-        serde_json::from_value::<ProcessMemoryRememberInput>(value.clone())
-            .expect("detached execution must cross memory v2");
-
-        let mut v1 = value.clone();
-        v1.as_object_mut()
-            .expect("memory object")
-            .remove("attribution");
-        serde_json::from_value::<ProcessMemoryRememberInput>(v1)
-            .expect_err("memory v1 payload must not be accepted by v2");
-
-        let recall = ProcessMemoryRecallInput {
-            query: MemoryQuery::new("detached", 5),
-            attribution,
-        };
-        let mut legacy_owner = serde_json::to_value(recall).expect("recall input");
-        let object = legacy_owner.as_object_mut().expect("recall object");
-        object.remove("attribution");
-        object.insert(
-            "owner".to_owned(),
-            serde_json::json!({
-                "session_id": "session_legacy",
-                "thread_id": "thread_legacy",
-                "turn_id": "turn_legacy"
-            }),
-        );
-        serde_json::from_value::<ProcessMemoryRecallInput>(legacy_owner)
-            .expect_err("memory v1 owner must not be accepted by v2");
     }
 }

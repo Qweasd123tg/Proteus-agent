@@ -1,5 +1,5 @@
 # Экспериментальная сборка: тот же subscription coding workflow,
-# context/v2 заменён на repo_aware с предварительным поиском по задаче.
+# context/v3 заменён на repo_aware с предварительным поиском по задаче.
 include = "codex-chatgpt.config.toml"
 
 [profile]
@@ -12,6 +12,7 @@ context = "repo_aware"
 [components.reference-context.exports.context.repo_aware]
 
 [module_config.context.repo_aware]
+search_provider = "rg_search"
 providers = ["project_instructions", "skills", "environment", "search"]
 max_context_bytes = 60000
 max_bytes_per_file = 12000

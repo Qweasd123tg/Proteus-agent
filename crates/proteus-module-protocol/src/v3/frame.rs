@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn envelopes_preserve_requests_notifications_and_terminal_payloads() {
-        let params = json!({"export": {"slot": "search", "module_id": "rg"}});
+        let params = json!({"export": {"slot": "tool", "module_id": "rg_search"}});
         let ComponentFrame::Request {
             id,
             method,

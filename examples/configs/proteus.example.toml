@@ -28,11 +28,17 @@ command = "proteus-reference-module"
 
 [components.reference-capabilities.exports.policy.ask_write]
 
+[components.reference-capabilities.exports.tool.direct_patch]
+
+[components.reference-capabilities.exports.tool.rg_search]
+
+[components.reference-capabilities.exports.tool.jsonl_memory]
+
 [agent_control]
 surface = "none"
 
 [tools]
-# Core-resident slot facade tools. Add a `tool/reference.tools` process
+# Explicit process tools. Add a `tool/reference.tools` process
 # export before enabling file, git, shell, plan, skill, or LSP tools.
 enabled = ["apply_patch", "remember_fact", "request_user_input", "search"]
 

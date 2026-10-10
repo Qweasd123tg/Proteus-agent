@@ -10,7 +10,6 @@ stream = true
 
 [modules]
 workflow = "coding.single_loop"
-search = "python_rg"
 context = "simple"
 policy = "ask_write"
 
@@ -23,7 +22,10 @@ command = "proteus-reference-module"
 command = "python3"
 args = ["examples/modules/search-process/search.py"]
 
-[components.python-search.exports.search.python_rg]
+[components.python-search.exports.tool.python_rg]
+timeout_ms = 60000
+
+[components.python-search.exports.context_provider.python_rg]
 timeout_ms = 60000
 
 [components.reference-context]
@@ -37,6 +39,7 @@ command = "proteus-reference-module"
 [components.reference-capabilities.exports.policy.ask_write]
 
 [module_config.context.simple]
+search_provider = "python_rg"
 max_search_results = 20
 
 [module_config.policy.ask_write]

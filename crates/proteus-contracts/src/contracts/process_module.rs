@@ -217,10 +217,10 @@ mod tests {
     #[test]
     fn process_component_handshake_is_strict() {
         let export = ProcessComponentExportInitialize::new(
-            "search",
+            "context_provider",
             "python_rg",
-            "v1",
-            ProcessModuleComposition::SelectOne,
+            "v4",
+            ProcessModuleComposition::OrderedMany,
             serde_json::json!({ "roots": ["src"] }),
             ["branch_state"],
         );
@@ -228,7 +228,7 @@ mod tests {
         let value = serde_json::to_value(&initialize).expect("initialize value");
         assert_eq!(value["protocol_version"], "v3");
         assert_eq!(value["component_id"], "python-search");
-        assert_eq!(value["exports"][0]["composition"], "select_one");
+        assert_eq!(value["exports"][0]["composition"], "ordered_many");
         assert_eq!(value["exports"][0]["module_id"], "python_rg");
 
         let mut unknown = value;
@@ -239,8 +239,8 @@ mod tests {
         serde_json::from_value::<ProcessComponentInitialize>(unknown)
             .expect_err("unknown handshake fields must be rejected");
         let mut manifest = serde_json::json!({
-            "slot":"search", "module_id":"python_rg", "contract_version":"v2",
-            "composition":"select_one", "module_features":[], "config_schema":null,
+            "slot":"context_provider", "module_id":"python_rg", "contract_version":"v4",
+            "composition":"ordered_many", "module_features":[], "config_schema":null,
         });
         serde_json::from_value::<ProcessComponentExportManifest>(manifest.clone()).unwrap();
         manifest.as_object_mut().unwrap().remove("config_schema");
@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn component_invocation_carries_target_and_lineage() {
         let call = ProcessComponentInvocation::new(
-            ProcessComponentExportRef::new("search", "rg"),
+            ProcessComponentExportRef::new("tool", "rg_search"),
             ProcessInvocationLineage::root("h:1:7"),
             serde_json::json!({"query": "needle"}),
         );
@@ -275,7 +275,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(call).expect("call"),
             serde_json::json!({
-                "export": {"slot": "search", "module_id": "rg"},
+                "export": {"slot": "tool", "module_id": "rg_search"},
                 "lineage": {
                     "root_invocation_id": "h:1:7",
                     "parent_invocation_id": null,
@@ -286,7 +286,7 @@ mod tests {
         );
 
         serde_json::from_value::<ProcessComponentInvocation>(serde_json::json!({
-            "export": {"slot": "search", "module_id": "rg"},
+            "export": {"slot": "tool", "module_id": "rg_search"},
             "lineage": {
                 "root_invocation_id": "h:1:7",
                 "depth": 0

@@ -9,11 +9,11 @@ use std::{
 use async_trait::async_trait;
 use proteus_contracts::{
     contracts::{
-        COMPACTOR_HOST_COMPLETE_MODEL_METHOD, CONTEXT_HOST_RECALL_MEMORY_METHOD,
-        CONTEXT_HOST_SEARCH_METHOD, CancellationToken, UserInputRequest, UserInputResponse,
-        UserInputTransport, WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
+        COMPACTOR_HOST_COMPLETE_MODEL_METHOD, CONTEXT_HOST_PROVIDER_METHOD, CancellationToken,
+        UserInputRequest, UserInputResponse, UserInputTransport,
+        WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
     },
-    domain::MemoryItem,
+    domain::{ToolCall, new_call_id},
     model_standard::ContentPart,
 };
 use proteus_core::{
@@ -82,8 +82,7 @@ fn assert_separate_slot_authority(config: &AppConfig) {
         HashSet::from([
             "model",
             "workflow",
-            "search",
-            "memory",
+            "context_provider",
             "context",
             "policy",
             "compactor",
@@ -99,9 +98,8 @@ fn assert_separate_slot_authority(config: &AppConfig) {
 
     assert!(workflow.allows_host_method(WORKFLOW_HOST_COMPLETE_MODEL_METHOD));
     assert!(workflow.allows_host_method(WORKFLOW_HOST_EXECUTE_TOOL_METHOD));
-    assert!(!workflow.allows_host_method(CONTEXT_HOST_SEARCH_METHOD));
-    assert!(context.allows_host_method(CONTEXT_HOST_SEARCH_METHOD));
-    assert!(context.allows_host_method(CONTEXT_HOST_RECALL_MEMORY_METHOD));
+    assert!(!workflow.allows_host_method(CONTEXT_HOST_PROVIDER_METHOD));
+    assert!(context.allows_host_method(CONTEXT_HOST_PROVIDER_METHOD));
     assert!(!context.allows_host_method(WORKFLOW_HOST_COMPLETE_MODEL_METHOD));
     assert!(compactor.allows_host_method(COMPACTOR_HOST_COMPLETE_MODEL_METHOD));
     assert!(!compactor.allows_host_method(WORKFLOW_HOST_EXECUTE_TOOL_METHOD));
@@ -186,16 +184,21 @@ async fn one_component_profile_preserves_pid_authority_cancellation_and_journal_
         .await
         .expect("workflow reached blocking user-input callback");
 
-    tokio::time::timeout(
+    let sibling = tokio::time::timeout(
         Duration::from_secs(5),
-        runtime.remember(
-            MemoryItem::new("fact", "independent sibling", json!({})),
+        runtime.execute_tool(
+            ToolCall::new(
+                new_call_id(),
+                "remember_fact",
+                json!({"kind":"fact", "content":"independent sibling"}),
+            ),
             CancellationToken::new(),
         ),
     )
     .await
     .expect("independent memory invocation did not deadlock")
     .expect("independent memory invocation");
+    assert!(sibling.ok, "independent tool write must succeed");
     assert_eq!(recorded_pids(&marker), [live_pid]);
 
     cancellation.cancel();
@@ -208,13 +211,18 @@ async fn one_component_profile_preserves_pid_authority_cancellation_and_journal_
         format!("{canceled_error:#}").contains("canceled"),
         "{canceled_error:#}"
     );
-    runtime
-        .remember(
-            MemoryItem::new("fact", "after cancellation", json!({})),
+    let after_cancel = runtime
+        .execute_tool(
+            ToolCall::new(
+                new_call_id(),
+                "remember_fact",
+                json!({"kind":"fact", "content":"after cancellation"}),
+            ),
             CancellationToken::new(),
         )
         .await
         .expect("component remains usable after targeted cancellation");
+    assert!(after_cancel.ok);
 
     let output = runtime
         .run("read_file probe.txt".to_owned())

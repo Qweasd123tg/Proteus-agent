@@ -920,7 +920,7 @@ args = ["ok"]
 }
 
 #[tokio::test]
-async fn app_server_remember_uses_memory_v2_without_a_turn_or_tool() {
+async fn app_server_remember_uses_a_configured_tool_without_a_turn() {
     use crate::process_adapters::ProcessComponentConfig;
 
     let workspace = tempfile::tempdir().expect("workspace");
@@ -933,15 +933,15 @@ async fn app_server_remember_uses_memory_v2_without_a_turn_or_tool() {
         "args": ["-B", fixture],
         "handshake_timeout_ms": 3_000,
         "exports": {
-            "memory": {"phase8-memory": {"timeout_ms": 3_000}},
+            "tool": {"phase8-memory": {"timeout_ms": 3_000}},
         },
     }))
     .expect("memory component config");
     let mut config = crate::test_model::config();
-    config.modules.memory = Some("phase8-memory".to_owned());
-    config.tools.enabled.clear();
+    config.tools.enabled = vec!["remember_fact".to_owned()];
+    crate::test_model::add_allow_all_policy(&mut config);
     config.module_config.insert(
-        "memory".to_owned(),
+        "tool".to_owned(),
         [(
             "phase8-memory".to_owned(),
             serde_json::json!({"record_path": record_path}),
@@ -953,7 +953,7 @@ async fn app_server_remember_uses_memory_v2_without_a_turn_or_tool() {
         .components
         .insert("phase8-memory-component".to_owned(), component);
 
-    let handle = AgentAppServer::launch(config, workspace.path().to_path_buf(), None)
+    let handle = AgentAppServer::launch(config.clone(), workspace.path().to_path_buf(), None)
         .await
         .expect("app-server");
     let result = handle
@@ -967,17 +967,43 @@ async fn app_server_remember_uses_memory_v2_without_a_turn_or_tool() {
     assert_eq!(result.kind, "preference");
     assert_eq!(result.content, "preserve protocol authority");
     assert_eq!(handle.history_summary().await.messages, 0);
-    assert!(
+    assert_eq!(
         handle.config_summary().await["registered_tools"]
             .as_array()
             .expect("registered tools")
-            .is_empty()
+            .len(),
+        1
     );
-    let record = std::fs::read_to_string(record_path).expect("memory invocation record");
+    let record = std::fs::read_to_string(&record_path).expect("memory invocation record");
     assert!(record.contains("preserve protocol authority"));
     assert!(record.contains("\"agent\": null"));
 
+    let invalid = handle
+        .remember("invalid".into(), "must not reach storage".into())
+        .await
+        .expect_err("invalid memory kind must fail");
+    assert!(invalid.to_string().contains("kind"), "{invalid:#}");
+    assert_eq!(std::fs::read_to_string(&record_path).unwrap(), record);
+
     handle.shutdown().await;
+
+    config.permissions.mode = crate::domain::PermissionMode::Plan;
+    let denied = AgentAppServer::launch(config, workspace.path().to_path_buf(), None)
+        .await
+        .expect("read-only app-server");
+    assert!(
+        denied
+            .remember("fact".into(), "must not bypass policy".into())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        std::fs::read_to_string(record_path).unwrap(),
+        record,
+        "denied /remember must not reach the process implementation"
+    );
+    assert_eq!(denied.history_summary().await.messages, 0);
+    denied.shutdown().await;
 }
 
 mod context_resume;

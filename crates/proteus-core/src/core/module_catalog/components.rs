@@ -4,15 +4,13 @@ use anyhow::{Result, bail};
 use proteus_module_protocol::{ProcessExportBinding, current_process_contract_authority};
 
 use crate::{
-    contracts::{
-        ContextBuilder, HistoryCompactor, MemoryStore, SearchBackend, ToolExposure, Workflow,
-    },
+    contracts::{ContextBuilder, HistoryCompactor, ToolExposure, Workflow},
     core::AppConfig,
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{
         ProcessApprovalPolicy, ProcessComponentLauncher, ProcessContextBuilder,
-        ProcessExportConfig, ProcessHistoryCompactor, ProcessMemoryStore, ProcessModel,
-        ProcessSearchBackend, ProcessToolExposure, ProcessWorkflowAdapter,
+        ProcessExportConfig, ProcessHistoryCompactor, ProcessModel, ProcessToolExposure,
+        ProcessWorkflowAdapter,
     },
 };
 
@@ -95,29 +93,6 @@ impl ModuleCatalog {
             }
             "tool" => self.process_tools.push(export),
             "context_provider" => self.process_context_providers.push(export),
-            "search" => {
-                ensure_process_id_is_free(self, slot::SEARCH, &module_id)?;
-                self.register_module::<dyn SearchBackend>(
-                    slot::SEARCH,
-                    &module_id,
-                    process_manifest(&export, ModuleKind::Search, description),
-                    move |ctx| {
-                        Ok(Arc::new(ProcessSearchBackend::new(
-                            export.clone(),
-                            ctx.cwd,
-                        )?))
-                    },
-                );
-            }
-            "memory" => {
-                ensure_process_id_is_free(self, slot::MEMORY, &module_id)?;
-                self.register_module::<dyn MemoryStore>(
-                    slot::MEMORY,
-                    &module_id,
-                    process_manifest(&export, ModuleKind::Memory, description),
-                    move |ctx| Ok(Arc::new(ProcessMemoryStore::new(export.clone(), ctx.cwd)?)),
-                );
-            }
             "context" => {
                 ensure_process_id_is_free(self, slot::CONTEXT, &module_id)?;
                 self.register_module::<dyn ContextBuilder>(

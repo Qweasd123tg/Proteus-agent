@@ -1,22 +1,19 @@
 use anyhow::{Result, anyhow, bail};
 use proteus_contracts::{
     contracts::{
-        PROCESS_MEMORY_RECALL_METHOD, PROCESS_MEMORY_REMEMBER_METHOD,
         PROCESS_POLICY_EVALUATE_METHOD, PROCESS_POLICY_VISIBILITY_METHOD,
         PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, ProcessCompactionResponse,
         ProcessComponentExportInitialize, ProcessComponentExportManifest,
         ProcessContextChunksResponse, ProcessContextInput, ProcessContextResponse,
-        ProcessMemoryRecallInput, ProcessMemoryRecallResponse, ProcessMemoryRememberInput,
-        ProcessMemoryRememberResponse, ProcessPolicyEvaluateInput, ProcessPolicyResponse,
-        ProcessPolicyVisibilityInput, ProcessSearchResponse, ProcessToolExposureInput,
-        ProcessToolExposureResponse, ProcessToolInvokeInput, ProcessToolInvokeResponse,
-        ProcessToolListResponse, ProcessWorkflowInput, ProcessWorkflowResponse, WorkflowOutput,
+        ProcessPolicyEvaluateInput, ProcessPolicyResponse, ProcessPolicyVisibilityInput,
+        ProcessToolExposureInput, ProcessToolExposureResponse, ProcessToolInvokeInput,
+        ProcessToolInvokeResponse, ProcessToolListResponse, ProcessWorkflowInput,
+        ProcessWorkflowResponse, WorkflowOutput,
     },
     domain::ToolSpec,
     process_module::{
-        ContextBuilderModuleInput, MemoryModuleInvocationContext, PolicyModuleInvocationContext,
-        PolicyModuleVisibilityContext, ToolModuleInvocationContext, WorkflowModuleInput,
-        WorkflowModuleOutput,
+        ContextBuilderModuleInput, PolicyModuleInvocationContext, PolicyModuleVisibilityContext,
+        ToolModuleInvocationContext, WorkflowModuleInput, WorkflowModuleOutput,
     },
 };
 use proteus_module_protocol::process_contract_authority;
@@ -24,8 +21,7 @@ use serde_json::Value;
 
 use crate::{
     hosts::{
-        CompactorHostBridge, ContextHostBridge, HostBridge, MemoryHostBridge, ToolHostBridge,
-        WorkflowHostBridge,
+        CompactorHostBridge, ContextHostBridge, HostBridge, ToolHostBridge, WorkflowHostBridge,
     },
     registry::CollectedModules,
 };
@@ -82,8 +78,6 @@ impl ModuleExport {
             "hook" => self.hook(params),
             "model" => self.model(method, params, bridge),
             "tool" => self.tool(method, params, bridge),
-            "search" => self.search(params),
-            "memory" => self.memory(method, params, bridge),
             "policy" => self.policy(method, params),
             "tool_exposure" => self.tool_exposure(params),
             "context" => self.context(params, bridge),
@@ -191,59 +185,6 @@ impl ModuleExport {
         }
     }
 
-    fn search(&self, params: Value) -> Result<Value> {
-        let backend = self
-            .modules
-            .searches
-            .get(&self.binding.module_id)
-            .ok_or_else(|| anyhow!("search module was not registered"))?;
-        let output = backend.search_json(serde_json::to_string(&params)?)?;
-        encode(ProcessSearchResponse::new(serde_json::from_str(
-            output.as_str(),
-        )?))
-    }
-
-    fn memory(&self, method: &str, params: Value, bridge: &HostBridge) -> Result<Value> {
-        let store = self
-            .modules
-            .memories
-            .get(&self.binding.module_id)
-            .ok_or_else(|| anyhow!("memory module was not registered"))?;
-        match method {
-            PROCESS_MEMORY_REMEMBER_METHOD => {
-                let input: ProcessMemoryRememberInput = decode(params)?;
-                let context_json = serde_json::to_string(&MemoryModuleInvocationContext {
-                    attribution: input.attribution,
-                    config: self.binding.module_config.clone(),
-                })?;
-                let mut host = MemoryHostBridge(bridge.clone());
-                store.remember_json(
-                    serde_json::to_string(&input.item)?,
-                    context_json,
-                    &mut host,
-                )?;
-                encode(ProcessMemoryRememberResponse::new(()))
-            }
-            PROCESS_MEMORY_RECALL_METHOD => {
-                let input: ProcessMemoryRecallInput = decode(params)?;
-                let context_json = serde_json::to_string(&MemoryModuleInvocationContext {
-                    attribution: input.attribution,
-                    config: self.binding.module_config.clone(),
-                })?;
-                let mut host = MemoryHostBridge(bridge.clone());
-                let output = store.recall_json(
-                    serde_json::to_string(&input.query)?,
-                    context_json,
-                    &mut host,
-                )?;
-                encode(ProcessMemoryRecallResponse::new(serde_json::from_str(
-                    output.as_str(),
-                )?))
-            }
-            _ => unreachable!(),
-        }
-    }
-
     fn policy(&self, method: &str, params: Value) -> Result<Value> {
         let policy = self
             .modules
@@ -302,6 +243,7 @@ impl ModuleExport {
             .ok_or_else(|| anyhow!("context module was not registered"))?;
         let module_input = ContextBuilderModuleInput {
             task: input.task,
+            attribution: input.attribution,
             config: self.binding.module_config.clone(),
         };
         let mut host = ContextHostBridge(bridge.clone());

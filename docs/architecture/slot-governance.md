@@ -71,7 +71,7 @@ authority(module) = authority(slot, invocation_context)
    или источниками данных. Запланированный вариант, пустая реализация и
    транспортная обёртка той же реализации не считаются.
 2. Поведение нельзя выразить через существующие `Tool`, `Workflow`,
-   `ContextBuilder`, `ToolExposure`, `SearchBackend`, `MemoryStore`,
+   `ContextBuilder`, `context_provider`, `ToolExposure`,
    `ApprovalPolicy`, `Compactor` или `Model`.
 3. Ядро должно само вызывать это поведение в устойчивой точке жизненного цикла.
    Если достаточно инструмента, шага `Workflow` или `context_provider`, новый
@@ -113,8 +113,8 @@ authority(module) = authority(slot, invocation_context)
 | Меняется порядок действий агента | `Workflow` |
 | Контекст добавляется или сокращается перед вызовом модели | `ContextBuilder`, `context_provider` или `Compactor` |
 | Выбирается, какие инструменты показать модели | `ToolExposure` |
-| Ищутся данные в проекте | `SearchBackend` или источник данных внутри `ContextBuilder` |
-| Долговременная память явно сохраняется или читается | `MemoryStore` вместе с `Tool` или `Workflow`; фоновая работа остаётся исследованием до появления двух реализаций |
+| Ищутся данные в проекте | `Tool` для явного действия, `context_provider` для автоматического добавления контекста |
+| Долговременная память явно сохраняется или читается | `Tool`; автоматическое чтение — `context_provider`, durable storage принадлежит implementation |
 | Принимается решение `allow` / `ask` / `deny` | `ApprovalPolicy` и передача решения на подтверждение |
 | Применяется изменение файла | `Tool`, включая process tool `apply_patch`; алгоритм принадлежит implementation |
 | Меняется запрос к провайдеру, поток ответа или учёт использования | `Model` и его контракт обмена с процессом |

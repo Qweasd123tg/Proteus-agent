@@ -1,4 +1,5 @@
 use super::*;
+use crate::search_queries::extract_search_queries;
 
 #[test]
 fn context_configs_reject_unknown_keys_and_keep_known_limits() {
@@ -36,20 +37,12 @@ fn context_configs_reject_unknown_keys_and_keep_known_limits() {
 
 #[test]
 fn zero_search_limit_skips_host_search_in_simple_and_repo_aware() {
-    use proteus_contracts::process_module::{
-        ContextBuilderModuleHost, ProcessModuleError, ProcessModuleResult,
-    };
+    use proteus_contracts::process_module::{ContextBuilderModuleHost, ProcessModuleResult};
 
     struct NoSearchHost;
     impl ContextBuilderModuleHost for NoSearchHost {
-        fn search_json(&self, _: String) -> ProcessModuleResult<String> {
-            panic!("zero search limit must not call host search")
-        }
-        fn recall_memory_json(&self, _: String) -> ProcessModuleResult<String> {
-            Ok("[]".into())
-        }
         fn context_provider_json(&self, _: String, _: String) -> ProcessModuleResult<String> {
-            Err(ProcessModuleError::new("unused provider"))
+            panic!("disabled retrieval must not call a provider")
         }
     }
     let input = ContextBuilderModuleInput {
@@ -58,6 +51,9 @@ fn zero_search_limit_skips_host_search_in_simple_and_repo_aware() {
             PathBuf::from("/ws"),
         ),
         config: Value::Null,
+        attribution: proteus_contracts::contracts::ExecutionAttribution::detached(
+            proteus_contracts::domain::new_execution_id(),
+        ),
     };
     let mut host = NoSearchHost;
     let simple = build_simple_context(
@@ -65,6 +61,8 @@ fn zero_search_limit_skips_host_search_in_simple_and_repo_aware() {
         &mut host,
         SimpleContextConfig {
             max_search_results: 0,
+            search_provider: Some("search-fixture".into()),
+            ..Default::default()
         },
     )
     .unwrap();
@@ -74,6 +72,7 @@ fn zero_search_limit_skips_host_search_in_simple_and_repo_aware() {
         &mut host,
         &RepoAwareContextConfig {
             max_search_results: 0,
+            search_provider: Some("search-fixture".into()),
             ..Default::default()
         },
     )
@@ -271,6 +270,9 @@ fn environment_chunks_report_current_platform_and_sh() {
     let input = ContextBuilderModuleInput {
         task: proteus_contracts::domain::AgentTask::new("task", PathBuf::from("/ws")),
         config: Value::Null,
+        attribution: proteus_contracts::contracts::ExecutionAttribution::detached(
+            proteus_contracts::domain::new_execution_id(),
+        ),
     };
 
     let chunks = environment_chunks(&input);

@@ -6,10 +6,7 @@ mod components;
 mod tools;
 
 use crate::{
-    contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model, SearchBackend,
-        ToolExposure, Workflow,
-    },
+    contracts::{ApprovalPolicy, ContextBuilder, HistoryCompactor, Model, ToolExposure, Workflow},
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{ProcessContextProvider, ProcessExportConfig},
@@ -289,22 +286,6 @@ impl ModuleCatalog {
                 cwd,
             }),
         )
-    }
-
-    pub(crate) fn build_search(
-        &self,
-        module: &str,
-        ctx: &ModuleBuildContext<'_>,
-    ) -> Result<Arc<dyn SearchBackend>> {
-        self.build_typed::<dyn SearchBackend>(slot::SEARCH, module, &ModuleBuildInput::Module(ctx))
-    }
-
-    pub(crate) fn build_memory(
-        &self,
-        module: &str,
-        ctx: &ModuleBuildContext<'_>,
-    ) -> Result<Arc<dyn MemoryStore>> {
-        self.build_typed::<dyn MemoryStore>(slot::MEMORY, module, &ModuleBuildInput::Module(ctx))
     }
 
     pub(crate) fn build_context(

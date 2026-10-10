@@ -13,7 +13,6 @@ use crate::{
         ModelExecutionBinding, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
         TurnSettlementStatus, prepare_failed_history_update, prepare_history_update,
     },
-    stubs::{NoMemory, NullSearch},
 };
 
 mod fixture;
@@ -163,16 +162,8 @@ pub async fn replay_workflow(
                 .with_tool_authority(tool_authority),
         )
     };
-    let mut execution_context = ExecutionContext::new(
-        scope,
-        0,
-        Some(model),
-        Arc::new(NullSearch),
-        Arc::new(NoMemory),
-        tools,
-        policy,
-        approval,
-    );
+    let mut execution_context =
+        ExecutionContext::new(scope, 0, Some(model), tools, policy, approval);
     execution_context.hooks = hooks.clone();
     let checkpoint_recorder = Arc::new(replay_runtime::ReplayCheckpointRecorder::new(
         state.clone(),

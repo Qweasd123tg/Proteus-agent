@@ -137,43 +137,6 @@ pub trait PolicyModule: Send + Sync + 'static {
 
 pub type PolicyModuleObject = Box<dyn PolicyModule>;
 
-pub trait SearchModule: Send + Sync + 'static {
-    fn search_json(&self, query_json: String) -> ProcessModuleResult<String>;
-}
-
-pub type SearchModuleObject = Box<dyn SearchModule>;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct MemoryModuleInvocationContext {
-    pub attribution: ExecutionAttribution,
-    #[serde(default)]
-    pub config: serde_json::Value,
-}
-
-pub trait MemoryModuleHost: Send + Sync {
-    fn is_cancelled(&self) -> ProcessModuleResult<bool>;
-}
-
-pub type MemoryModuleHostMut<'a> = dyn MemoryModuleHost + 'a;
-
-pub trait MemoryModule: Send + Sync + 'static {
-    fn remember_json(
-        &self,
-        item_json: String,
-        context_json: String,
-        host: &mut dyn MemoryModuleHost,
-    ) -> ProcessModuleResult<()>;
-    fn recall_json(
-        &self,
-        query_json: String,
-        context_json: String,
-        host: &mut dyn MemoryModuleHost,
-    ) -> ProcessModuleResult<String>;
-}
-
-pub type MemoryModuleObject = Box<dyn MemoryModule>;
-
 pub trait ContextProviderModule: Send + Sync + 'static {
     fn provide_json(&self, input_json: String) -> ProcessModuleResult<String>;
     fn skill_catalog(
@@ -190,13 +153,12 @@ pub type ContextProviderModuleObject = Box<dyn ContextProviderModule>;
 #[serde(deny_unknown_fields)]
 pub struct ContextBuilderModuleInput {
     pub task: AgentTask,
+    pub attribution: ExecutionAttribution,
     #[serde(default)]
     pub config: serde_json::Value,
 }
 
 pub trait ContextBuilderModuleHost: Send + Sync {
-    fn search_json(&self, query_json: String) -> ProcessModuleResult<String>;
-    fn recall_memory_json(&self, query_json: String) -> ProcessModuleResult<String>;
     fn context_provider_json(
         &self,
         provider_id: String,
@@ -348,16 +310,6 @@ pub trait ModuleRegistry {
         &mut self,
         module_id: String,
         policy: PolicyModuleObject,
-    ) -> ProcessModuleResult<()>;
-    fn register_search(
-        &mut self,
-        module_id: String,
-        backend: SearchModuleObject,
-    ) -> ProcessModuleResult<()>;
-    fn register_memory(
-        &mut self,
-        module_id: String,
-        store: MemoryModuleObject,
     ) -> ProcessModuleResult<()>;
     fn register_context_provider(
         &mut self,

@@ -10,6 +10,7 @@ mod codex;
 mod config;
 mod config_schema;
 pub use config_schema::config_schema;
+mod retrieval;
 mod search_queries;
 mod workspace_files;
 
@@ -17,17 +18,19 @@ use budget::apply_byte_budget;
 use codex::build_codex_context;
 use config::{CodexContextConfig, RepoAwareContextConfig, SimpleContextConfig};
 use proteus_contracts::{
-    contracts::{ProcessContextProviderInput, SearchQuery},
+    contracts::ProcessContextProviderInput,
     domain::{
         ContextBundle, ContextChunk, ContextRenderMode, ENVIRONMENT_CONTEXT_TAG, EXEC_SHELL,
-        MemoryItem, MemoryQuery,
+        MemoryQuery, SearchQuery,
     },
     process_module::{
         ContextBuilderModule, ContextBuilderModuleHostMut, ContextBuilderModuleInput,
         ContextBuilderModuleObject, ModuleRegistry, ProcessModuleError,
     },
 };
-use search_queries::extract_search_queries;
+use retrieval::{
+    external_provider_chunks, memory_chunks, recall_memory, search_best_effort, search_chunks,
+};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use workspace_files::{
@@ -121,16 +124,18 @@ fn build_simple_context(
             .with_metadata(json!({})),
     ];
 
-    for item in recall_memory(host, MemoryQuery::new(input.task.text.clone(), 5))? {
-        chunks.push(
-            ContextChunk::new(format!("memory:{}", item.kind), item.content)
-                .with_metadata(item.metadata),
-        );
-    }
+    chunks.extend(recall_memory(
+        &input,
+        host,
+        config.memory_provider.as_deref(),
+        MemoryQuery::new(input.task.text.clone(), 5),
+    )?);
 
     if config.max_search_results > 0 {
         chunks.extend(search_best_effort(
+            &input,
             host,
+            config.search_provider.as_deref(),
             SearchQuery::new(
                 input.task.text.clone(),
                 input.task.cwd.clone(),
@@ -415,137 +420,6 @@ fn repo_tree_chunks(
         "repo_tree",
         "bounded workspace tree",
     )])
-}
-
-fn memory_chunks(
-    input: &ContextBuilderModuleInput,
-    host: &mut ContextBuilderModuleHostMut<'_>,
-    config: &RepoAwareContextConfig,
-) -> anyhow::Result<Vec<ContextChunk>> {
-    Ok(recall_memory(
-        host,
-        MemoryQuery::new(input.task.text.clone(), config.memory_limit),
-    )?
-    .into_iter()
-    .map(|item| {
-        ContextChunk::new(format!("repo_aware:memory:{}", item.kind), item.content)
-            .with_score(0.7)
-            .with_metadata(metadata("memory", "memory recall", item.metadata))
-    })
-    .collect())
-}
-
-fn search_chunks(
-    input: &ContextBuilderModuleInput,
-    host: &mut ContextBuilderModuleHostMut<'_>,
-    config: &RepoAwareContextConfig,
-) -> anyhow::Result<Vec<ContextChunk>> {
-    if config.max_search_results == 0 {
-        return Ok(Vec::new());
-    }
-    let queries = extract_search_queries(&input.task.text);
-    if queries.is_empty() {
-        return Ok(Vec::new());
-    }
-    let per_query_limit = config.max_search_results.div_ceil(queries.len()).max(1);
-    let mut chunks = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for query in queries {
-        let results = search_best_effort(
-            host,
-            SearchQuery::new(query.clone(), input.task.cwd.clone(), per_query_limit)
-                .with_use_case("repo_aware_context"),
-            "repo_aware_context",
-        )?;
-        for mut chunk in results {
-            let dedupe_key = format!(
-                "{}\n{}\n{}",
-                chunk
-                    .path
-                    .as_ref()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_default(),
-                chunk.content,
-                chunk.source
-            );
-            if !seen.insert(dedupe_key) {
-                continue;
-            }
-            chunk.source = format!("repo_aware:search:{}", chunk.source);
-            chunk.score = chunk.score.or(Some(0.55));
-            chunk.metadata = metadata(
-                "search",
-                "search result",
-                metadata_with(chunk.metadata.clone(), "query", json!(query)),
-            );
-            chunks.push(chunk);
-            if chunks.len() >= config.max_search_results {
-                return Ok(chunks);
-            }
-        }
-    }
-    Ok(chunks)
-}
-
-fn external_provider_chunks(
-    input: &ContextBuilderModuleInput,
-    host: &mut ContextBuilderModuleHostMut<'_>,
-    provider_id: &str,
-) -> anyhow::Result<Vec<ContextChunk>> {
-    let provider_input = ProcessContextProviderInput {
-        provider_id: provider_id.to_owned(),
-        task: input.task.clone(),
-        metadata: Value::Null,
-    };
-    let input_json = serde_json::to_string(&provider_input)?;
-    match host.context_provider_json(String::from(provider_id), String::from(input_json)) {
-        Ok(output_json) => Ok(serde_json::from_str(output_json.as_str())?),
-        Err(error) => Err(anyhow::anyhow!("{}", error.message)),
-    }
-}
-
-fn search(
-    host: &mut ContextBuilderModuleHostMut<'_>,
-    query: SearchQuery,
-) -> anyhow::Result<Vec<ContextChunk>> {
-    let query_json = serde_json::to_string(&query)?;
-    match host.search_json(String::from(query_json)) {
-        Ok(output_json) => Ok(serde_json::from_str(output_json.as_str())?),
-        Err(error) => Err(anyhow::anyhow!("{}", error.message)),
-    }
-}
-
-fn search_best_effort(
-    host: &mut ContextBuilderModuleHostMut<'_>,
-    query: SearchQuery,
-    provider: &str,
-) -> anyhow::Result<Vec<ContextChunk>> {
-    match search(host, query) {
-        Ok(chunks) => Ok(chunks),
-        Err(error) => Ok(vec![
-            ContextChunk::new(
-                format!("{provider}:search_error"),
-                format!("Workspace search was skipped: {error}"),
-            )
-            .with_score(0.05)
-            .with_metadata(metadata(
-                "search",
-                "search backend error; turn should continue without search context",
-                json!({ "error": error.to_string() }),
-            )),
-        ]),
-    }
-}
-
-fn recall_memory(
-    host: &mut ContextBuilderModuleHostMut<'_>,
-    query: MemoryQuery,
-) -> anyhow::Result<Vec<MemoryItem>> {
-    let query_json = serde_json::to_string(&query)?;
-    match host.recall_memory_json(String::from(query_json)) {
-        Ok(output_json) => Ok(serde_json::from_str(output_json.as_str())?),
-        Err(error) => Err(anyhow::anyhow!("{}", error.message)),
-    }
 }
 
 fn chunk(

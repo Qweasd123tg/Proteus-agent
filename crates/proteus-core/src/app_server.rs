@@ -6,7 +6,6 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use serde_json::Value;
 use tokio::sync::{Mutex, RwLock, broadcast};
 
 use crate::{
@@ -180,10 +179,21 @@ impl AppServerHandle {
         kind: String,
         content: String,
     ) -> Result<AppRememberResult> {
-        let item = crate::domain::MemoryItem::new(&kind, &content, Value::Null);
-        self.runtime
-            .remember(item, CancellationToken::new())
+        let call = crate::domain::ToolCall::new(
+            crate::domain::new_call_id(),
+            "remember_fact",
+            serde_json::json!({"kind": kind, "content": content}),
+        );
+        let result = self
+            .runtime
+            .execute_tool(call, CancellationToken::new())
             .await?;
+        if !result.ok {
+            anyhow::bail!(
+                "remember_fact failed: {}",
+                result.error.unwrap_or(result.output)
+            );
+        }
         Ok(AppRememberResult::new(kind, content))
     }
 

@@ -1,7 +1,4 @@
-//! Ripgrep `SearchBackend` reference process module.
-//!
-//! The implementation is linked into the reference worker; the host only
-//! sees the shared `search` process contract.
+//! Ripgrep implementations of the tool and context-provider contracts.
 
 use std::{
     io::{BufRead, BufReader, Read},
@@ -12,37 +9,14 @@ use std::{
 };
 
 use proteus_contracts::{
-    contracts::SearchQuery,
-    domain::ContextChunk,
-    process_module::{ModuleRegistry, ProcessModuleError, SearchModule, SearchModuleObject},
+    domain::{ContextChunk, SearchQuery},
+    process_module::{ModuleRegistry, ProcessModuleError},
 };
 use serde_json::{Value, json};
 
-struct RgSearchModule;
+mod provider;
+mod tool;
 const RG_TIMEOUT: Duration = Duration::from_secs(60);
-
-impl SearchModule for RgSearchModule {
-    fn search_json(&self, query_json: String) -> Result<String, ProcessModuleError> {
-        let query: SearchQuery = match serde_json::from_str(query_json.as_str()) {
-            Ok(query) => query,
-            Err(error) => {
-                return Err(ProcessModuleError::new(format!(
-                    "invalid SearchQuery JSON: {error}"
-                )));
-            }
-        };
-
-        match run_rg(query) {
-            Ok(chunks) => match serde_json::to_string(&chunks) {
-                Ok(json) => Ok(String::from(json)),
-                Err(error) => Err(ProcessModuleError::new(format!(
-                    "failed to serialize search chunks: {error}"
-                ))),
-            },
-            Err(error) => Err(ProcessModuleError::new(error)),
-        }
-    }
-}
 
 fn run_rg(query: SearchQuery) -> Result<Vec<ContextChunk>, String> {
     if query.text.trim().is_empty() || query.max_results == 0 {
@@ -318,8 +292,8 @@ fn normalize_rg_path(path: &str) -> &str {
 }
 
 pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
-    let backend: SearchModuleObject = Box::new(RgSearchModule);
-    registry.register_search(String::from("rg"), backend)
+    registry.register_tool(Box::new(tool::SearchTool))?;
+    registry.register_context_provider("rg_search".into(), Box::new(provider::SearchProvider))
 }
 
 #[cfg(test)]

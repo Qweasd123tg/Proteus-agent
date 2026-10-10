@@ -1,42 +1,34 @@
 use proteus_contracts::contracts::{
-    COMPACTOR_HOST_COMPLETE_MODEL_METHOD, CONTEXT_HOST_PROVIDER_METHOD,
-    CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD, MODEL_HOST_EMIT_METHOD,
+    COMPACTOR_HOST_COMPLETE_MODEL_METHOD, CONTEXT_HOST_PROVIDER_METHOD, MODEL_HOST_EMIT_METHOD,
     PROCESS_COMPACTOR_CONTRACT_VERSION, PROCESS_COMPACTOR_METHOD, PROCESS_CONTEXT_BUILD_METHOD,
     PROCESS_CONTEXT_CONTRACT_VERSION, PROCESS_CONTEXT_PROVIDER_CATALOG_METHOD,
     PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION, PROCESS_CONTEXT_PROVIDER_METHOD,
-    PROCESS_HOOK_CONTRACT_VERSION, PROCESS_HOOK_INVOKE_METHOD, PROCESS_MEMORY_CONTRACT_VERSION,
-    PROCESS_MEMORY_RECALL_METHOD, PROCESS_MEMORY_REMEMBER_METHOD, PROCESS_MODEL_CATALOG_METHOD,
+    PROCESS_HOOK_CONTRACT_VERSION, PROCESS_HOOK_INVOKE_METHOD, PROCESS_MODEL_CATALOG_METHOD,
     PROCESS_MODEL_CONTRACT_VERSION, PROCESS_MODEL_DESCRIBE_METHOD, PROCESS_MODEL_QUOTA_METHOD,
     PROCESS_MODEL_STREAM_METHOD, PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD,
-    PROCESS_POLICY_VISIBILITY_METHOD, PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD,
-    PROCESS_TOOL_CONTRACT_VERSION, PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION,
-    PROCESS_TOOL_EXPOSURE_SELECT_METHOD, PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD,
-    PROCESS_WORKFLOW_CONTRACT_VERSION, PROCESS_WORKFLOW_METHOD, ProcessModuleComposition,
-    TOOL_HOST_READ_CONVERSATION_METHOD, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
-    WORKFLOW_HOST_COMPACT_HISTORY_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
-    WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
-    WORKFLOW_HOST_EXECUTE_TOOLS_METHOD, WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD,
-    WORKFLOW_HOST_RUNTIME_STATUS_METHOD, WORKFLOW_HOST_SELECT_TOOLS_METHOD,
-    WORKFLOW_HOST_START_MODEL_STREAM_METHOD, WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
+    PROCESS_POLICY_VISIBILITY_METHOD, PROCESS_TOOL_CONTRACT_VERSION,
+    PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
+    PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, PROCESS_WORKFLOW_CONTRACT_VERSION,
+    PROCESS_WORKFLOW_METHOD, ProcessModuleComposition, TOOL_HOST_READ_CONVERSATION_METHOD,
+    WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
+    WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
+    WORKFLOW_HOST_EXECUTE_TOOL_METHOD, WORKFLOW_HOST_EXECUTE_TOOLS_METHOD,
+    WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
+    WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_START_MODEL_STREAM_METHOD,
+    WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
 };
 
 const NO_HOST_METHODS: &[&str] = &[];
 const NO_PROTOCOL_FEATURES: &[&str] = &[];
-const SEARCH_METHODS: &[&str] = &[PROCESS_SEARCH_METHOD];
 const COMPACTOR_METHODS: &[&str] = &[PROCESS_COMPACTOR_METHOD];
 const COMPACTOR_HOST_METHODS: &[&str] = &[COMPACTOR_HOST_COMPLETE_MODEL_METHOD];
-const MEMORY_METHODS: &[&str] = &[PROCESS_MEMORY_REMEMBER_METHOD, PROCESS_MEMORY_RECALL_METHOD];
 const TOOL_EXPOSURE_METHODS: &[&str] = &[PROCESS_TOOL_EXPOSURE_SELECT_METHOD];
 const POLICY_METHODS: &[&str] = &[
     PROCESS_POLICY_EVALUATE_METHOD,
     PROCESS_POLICY_VISIBILITY_METHOD,
 ];
 const CONTEXT_METHODS: &[&str] = &[PROCESS_CONTEXT_BUILD_METHOD];
-const CONTEXT_HOST_METHODS: &[&str] = &[
-    CONTEXT_HOST_SEARCH_METHOD,
-    CONTEXT_HOST_RECALL_MEMORY_METHOD,
-    CONTEXT_HOST_PROVIDER_METHOD,
-];
+const CONTEXT_HOST_METHODS: &[&str] = &[CONTEXT_HOST_PROVIDER_METHOD];
 const CONTEXT_PROVIDER_METHODS: &[&str] = &[
     PROCESS_CONTEXT_PROVIDER_METHOD,
     PROCESS_CONTEXT_PROVIDER_CATALOG_METHOD,
@@ -99,29 +91,11 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         required_features: NO_PROTOCOL_FEATURES,
     },
     ProcessContractAuthority {
-        slot: "search",
-        contract_version: PROCESS_SEARCH_CONTRACT_VERSION,
-        composition: ProcessModuleComposition::SelectOne,
-        module_methods: SEARCH_METHODS,
-        host_methods: NO_HOST_METHODS,
-        host_features: NO_PROTOCOL_FEATURES,
-        required_features: NO_PROTOCOL_FEATURES,
-    },
-    ProcessContractAuthority {
         slot: "compactor",
         contract_version: PROCESS_COMPACTOR_CONTRACT_VERSION,
         composition: ProcessModuleComposition::SelectOne,
         module_methods: COMPACTOR_METHODS,
         host_methods: COMPACTOR_HOST_METHODS,
-        host_features: NO_PROTOCOL_FEATURES,
-        required_features: NO_PROTOCOL_FEATURES,
-    },
-    ProcessContractAuthority {
-        slot: "memory",
-        contract_version: PROCESS_MEMORY_CONTRACT_VERSION,
-        composition: ProcessModuleComposition::SelectOne,
-        module_methods: MEMORY_METHODS,
-        host_methods: NO_HOST_METHODS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -248,12 +222,21 @@ mod tests {
     }
 
     #[test]
-    fn search_authority_is_module_id_independent() {
-        let authority = process_contract_authority("search", PROCESS_SEARCH_CONTRACT_VERSION)
-            .expect("search authority");
+    fn context_provider_authority_is_module_id_independent() {
+        let authority = process_contract_authority(
+            "context_provider",
+            PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
+        )
+        .expect("provider authority");
 
-        assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
-        assert_eq!(authority.module_methods, [PROCESS_SEARCH_METHOD]);
+        assert_eq!(authority.composition, ProcessModuleComposition::OrderedMany);
+        assert_eq!(
+            authority.module_methods,
+            [
+                PROCESS_CONTEXT_PROVIDER_METHOD,
+                PROCESS_CONTEXT_PROVIDER_CATALOG_METHOD
+            ]
+        );
         assert!(authority.host_methods.is_empty());
     }
 
@@ -287,9 +270,8 @@ mod tests {
     #[test]
     fn typed_boundaries_require_current_contract_versions() {
         for (slot, previous, current) in [
-            ("search", "v1", "v2"),
-            ("context", "v1", "v2"),
-            ("context_provider", "v2", "v3"),
+            ("context", "v2", "v3"),
+            ("context_provider", "v3", "v4"),
             ("model", "v11", "v12"),
             ("compactor", "v10", "v11"),
             ("workflow", "v18", "v19"),

@@ -44,9 +44,8 @@ pub fn render_topology_runtime_path(snapshot: &TopologySnapshot) -> String {
         snapshot.tools.iter().filter(|tool| tool.registered).count(),
         snapshot.tools.iter().filter(|tool| tool.enabled).count()
     ));
-    render_runtime_slot(snapshot, "search", "repo search", &mut out);
 
-    let parked = ["memory", "compactor"];
+    let parked = ["compactor"];
     let parked = parked
         .into_iter()
         .filter_map(|slot_id| {
@@ -87,14 +86,7 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
             }
         ),
     );
-    for slot_id in [
-        "workflow",
-        "context",
-        "tool_exposure",
-        "model",
-        "policy",
-        "search",
-    ] {
+    for slot_id in ["workflow", "context", "tool_exposure", "model", "policy"] {
         labels.insert(
             format!("slot:{slot_id}"),
             runtime_mermaid_slot_label(snapshot, slot_id),
@@ -110,7 +102,7 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
     );
     labels.insert("output".to_owned(), "Final output".to_owned());
 
-    let parked = ["memory", "compactor"]
+    let parked = ["compactor"]
         .into_iter()
         .filter_map(|slot_id| {
             let slot = snapshot.slots.iter().find(|slot| slot.id == slot_id)?;
@@ -174,7 +166,6 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
     add_edge("slot:model", "slot:workflow", "response/tool calls");
     add_edge("slot:workflow", "slot:policy", "approval gate");
     add_edge("slot:policy", "tools", "executes allowed calls");
-    add_edge("tools", "slot:search", "search tools");
     add_edge("slot:workflow", "output", "final answer");
     add_edge("parked", "slot:context", "optional context");
     add_edge("warnings", "config", "review");

@@ -1,22 +1,22 @@
 //! JSONL memory reference process module.
 //!
-//! Registers the `jsonl` memory store.
+//! Provides `jsonl_memory` tools and an automatic recall context provider.
 
 use std::{
     fs::{self, OpenOptions},
     io::{BufRead, BufReader, Write},
     path::PathBuf,
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::{Context, Result, anyhow};
 use proteus_contracts::{
     domain::{MemoryItem, MemoryQuery},
-    process_module::{
-        MemoryModule, MemoryModuleHost, MemoryModuleObject, ModuleRegistry, ProcessModuleError,
-    },
+    process_module::{ModuleRegistry, ProcessModuleError},
 };
 use serde::Deserialize;
+mod provider;
+mod tools;
 #[cfg(test)]
 use serde_json::Value;
 
@@ -78,34 +78,18 @@ impl Default for JsonlMemoryStoreModule {
     }
 }
 
-impl MemoryModule for JsonlMemoryStoreModule {
-    fn remember_json(
-        &self,
-        item_json: String,
-        _context_json: String,
-        _host: &mut dyn MemoryModuleHost,
-    ) -> Result<(), ProcessModuleError> {
-        match remember_impl(&self.path, &self.lock, item_json.as_str()) {
-            Ok(()) => Ok(()),
-            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
-        }
+impl JsonlMemoryStoreModule {
+    fn remember(&self, item: &MemoryItem) -> Result<(), ProcessModuleError> {
+        let payload = serde_json::to_string(item)
+            .map_err(|error| ProcessModuleError::new(error.to_string()))?;
+        remember_impl(&self.path, &self.lock, &payload)
+            .map_err(|error| ProcessModuleError::new(format!("{error:#}")))
     }
-
-    fn recall_json(
-        &self,
-        query_json: String,
-        _context_json: String,
-        _host: &mut dyn MemoryModuleHost,
-    ) -> Result<String, ProcessModuleError> {
-        match recall_impl(&self.path, query_json.as_str()) {
-            Ok(items) => match serde_json::to_string(&items) {
-                Ok(body) => Ok(body.into()),
-                Err(error) => Err(ProcessModuleError::new(format!(
-                    "failed to serialize memory items: {error}"
-                ))),
-            },
-            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
-        }
+    fn recall(&self, query: &MemoryQuery) -> Result<Vec<MemoryItem>, ProcessModuleError> {
+        let payload = serde_json::to_string(query)
+            .map_err(|error| ProcessModuleError::new(error.to_string()))?;
+        recall_impl(&self.path, &payload)
+            .map_err(|error| ProcessModuleError::new(format!("{error:#}")))
     }
 }
 
@@ -167,11 +151,19 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
         .map_err(|error| {
             ProcessModuleError::new(format!("invalid jsonl memory config: {error}"))
         })?;
-    let store: MemoryModuleObject = Box::new(JsonlMemoryStoreModule::new(config.path));
-    if let Err(error) = registry.register_memory(String::from("jsonl"), store) {
-        return Err(error);
-    }
-    Ok(())
+    let store = Arc::new(JsonlMemoryStoreModule::new(config.path));
+    registry.register_tool(Box::new(tools::MemoryTool {
+        store: store.clone(),
+        remember: true,
+    }))?;
+    registry.register_tool(Box::new(tools::MemoryTool {
+        store: store.clone(),
+        remember: false,
+    }))?;
+    registry.register_context_provider(
+        "jsonl_memory".into(),
+        Box::new(provider::MemoryProvider { store }),
+    )
 }
 
 #[cfg(test)]
@@ -180,12 +172,6 @@ mod tests {
 
     #[test]
     fn configured_jsonl_backend_remembers_across_reopened_store() {
-        struct Host;
-        impl MemoryModuleHost for Host {
-            fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
-                Ok(false)
-            }
-        }
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("memory.jsonl");
         let fact = MemoryItem::new(
@@ -194,20 +180,12 @@ mod tests {
             serde_json::json!({"scope":"owner"}),
         );
         JsonlMemoryStoreModule::new(path.clone())
-            .remember_json(
-                serde_json::to_string(&fact).unwrap(),
-                "{}".into(),
-                &mut Host,
-            )
+            .remember(&fact)
             .unwrap();
         let result = JsonlMemoryStoreModule::new(path)
-            .recall_json(
-                r#"{"text":"architecture","limit":10}"#.into(),
-                "{}".into(),
-                &mut Host,
-            )
+            .recall(&MemoryQuery::new("architecture", 10))
             .unwrap();
-        let recalled: Vec<MemoryItem> = serde_json::from_str(&result).unwrap();
+        let recalled = result;
         assert_eq!(recalled.len(), 1);
         assert_eq!(recalled[0].kind, fact.kind);
         assert_eq!(recalled[0].content, fact.content);

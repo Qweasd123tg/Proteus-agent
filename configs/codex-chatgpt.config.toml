@@ -39,7 +39,6 @@ workflow = "coding.codex_loop"
 context = "codex_context"
 compactor = "codex"
 policy = "codex_policy"
-search = "rg"
 hooks = ["hook.dcp"]
 
 [module_config.context.codex_context]

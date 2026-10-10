@@ -364,10 +364,6 @@ pub struct ModulesConfig {
     #[serde(default)]
     pub workflow: Option<String>,
     #[serde(default)]
-    pub search: Option<String>,
-    #[serde(default)]
-    pub memory: Option<String>,
-    #[serde(default)]
     pub context: Option<String>,
     #[serde(default)]
     pub policy: Option<String>,
@@ -382,8 +378,6 @@ impl Default for ModulesConfig {
         Self {
             hooks: Vec::new(),
             workflow: None,
-            search: None,
-            memory: None,
             context: None,
             policy: None,
             compactor: None,
@@ -416,8 +410,6 @@ impl ModulesConfig {
     pub fn get(&self, kind: ModuleKind) -> Option<&str> {
         match kind {
             ModuleKind::Workflow => self.workflow.as_deref(),
-            ModuleKind::Search => self.search.as_deref(),
-            ModuleKind::Memory => self.memory.as_deref(),
             ModuleKind::Context => self.context.as_deref(),
             ModuleKind::Policy => self.policy.as_deref(),
             ModuleKind::Compactor => self.compactor.as_deref(),
@@ -440,8 +432,6 @@ impl ModulesConfig {
     fn set(&mut self, kind: ModuleKind, module_id: String) -> bool {
         match kind {
             ModuleKind::Workflow => self.workflow = Some(module_id),
-            ModuleKind::Search => self.search = Some(module_id),
-            ModuleKind::Memory => self.memory = Some(module_id),
             ModuleKind::Context => self.context = Some(module_id),
             ModuleKind::Policy => self.policy = Some(module_id),
             ModuleKind::Compactor => self.compactor = Some(module_id),
@@ -497,9 +487,6 @@ pub struct ConfiguredToolConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConfiguredToolExecutorConfig {
-    Native {
-        handler: String,
-    },
     Process {
         command: String,
         #[serde(default)]

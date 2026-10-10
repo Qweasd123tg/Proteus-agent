@@ -15,7 +15,7 @@ fn process_search_config(command: &str) -> AppConfig {
             "fake".into(),
             json!({"implementation": "fake", "api_key": "private-provider-secret"}),
         );
-    config.modules.search = Some("external-search".to_owned());
+    config.modules.context = Some("external-search".to_owned());
     config.components.insert(
         "search-worker".to_owned(),
         serde_json::from_value(json!({
@@ -23,7 +23,7 @@ fn process_search_config(command: &str) -> AppConfig {
             "args": ["private-component-arg"],
             "env": {"PRIVATE_PLAN_TEST": "must-not-be-serialized"},
             "exports": {
-                "search": {
+                "context": {
                     "external-search": {"timeout_ms": 1000}
                 }
             }
@@ -49,17 +49,20 @@ fn plan_resolves_exact_component_export_without_starting_it() {
     let search = plan
         .slots
         .iter()
-        .find(|slot| slot.id == "search")
-        .expect("search slot");
+        .find(|slot| slot.id == "context")
+        .expect("context slot");
     assert_eq!(search.module_id.as_deref(), Some("external-search"));
     assert_eq!(search.source, Some(AssemblyModuleSource::Process));
     assert_eq!(search.component_id.as_deref(), Some("search-worker"));
 
     let export = &plan.components[0].exports[0];
-    assert_eq!(export.slot, "search");
+    assert_eq!(export.slot, "context");
     assert_eq!(export.use_state, AssemblyExportUse::Selected);
-    assert_eq!(export.contract_version, "v2");
-    assert!(export.host_methods.is_empty());
+    assert_eq!(export.contract_version, "v3");
+    assert_eq!(
+        export.host_methods,
+        [crate::contracts::CONTEXT_HOST_PROVIDER_METHOD]
+    );
 
     let serialized = serde_json::to_string(&plan).expect("plan JSON");
     assert!(!serialized.contains("must-not-be-serialized"));
@@ -71,7 +74,7 @@ fn plan_resolves_exact_component_export_without_starting_it() {
 #[test]
 fn missing_selection_blocks_prepared_assembly_before_module_build() {
     let mut config = crate::test_model::config();
-    config.modules.search = Some("missing-search".to_owned());
+    config.modules.context = Some("missing-context".to_owned());
     let catalog = ModuleCatalog::from_config(&config).expect("catalog");
     let plan = AssemblyPlan::resolve(config.clone(), None, PathBuf::from("."), &catalog)
         .expect("diagnostic plan");
@@ -80,7 +83,7 @@ fn missing_selection_blocks_prepared_assembly_before_module_build() {
     assert!(plan.checks.iter().any(|check| {
         check.severity == AssemblyCheckSeverity::Error
             && check.code == "module_not_registered"
-            && check.message.contains("search/missing-search")
+            && check.message.contains("context/missing-context")
     }));
 
     let error = PreparedAssembly::from_catalog(config, PathBuf::from("."), None, catalog)

@@ -4,19 +4,20 @@ use anyhow::Result;
 use async_trait::async_trait;
 use proteus_module_protocol::{
     ProcessModuleRpcError,
-    v3::{AsyncHostRequestDispatcher, ComponentHostRequest, HostRequestFuture},
+    v3::{
+        AsyncHostRequestDispatcher, ComponentHostRequest, HostRequestFuture, NoAsyncHostRequests,
+    },
 };
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::{
     contracts::{
-        CONTEXT_HOST_PROVIDER_METHOD, CONTEXT_HOST_RECALL_MEMORY_METHOD,
-        CONTEXT_HOST_SEARCH_METHOD, ContextBuildInput, ContextBuilder,
+        CONTEXT_HOST_PROVIDER_METHOD, ContextBuildInput, ContextBuilder,
         PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_CONTRACT_VERSION,
         PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION, PROCESS_CONTEXT_PROVIDER_METHOD,
         ProcessContextChunksResponse, ProcessContextInput, ProcessContextProviderInput,
-        ProcessContextRecallInput, ProcessContextResponse, ProcessContextSearchInput,
+        ProcessContextResponse,
     },
     core::RepoAwareContextProvider,
     domain::{ContextBundle, ContextChunk},
@@ -58,14 +59,21 @@ impl ContextBuilder for ProcessContextBuilder {
     async fn build(&self, input: ContextBuildInput) -> Result<ContextBundle> {
         let request = ProcessContextInput {
             task: input.task.clone(),
+            attribution: input.attribution,
         };
+        let cancellation = input.scope.cancellation.clone();
         let dispatcher: Arc<dyn AsyncHostRequestDispatcher> = Arc::new(ContextDispatcher {
             input,
             providers: self.providers.clone(),
         });
         let response: ProcessContextResponse = self
             .client
-            .invoke_with_dispatcher(PROCESS_CONTEXT_BUILD_METHOD, &request, dispatcher)
+            .invoke_with_dispatcher_and_cancel_check(
+                PROCESS_CONTEXT_BUILD_METHOD,
+                &request,
+                dispatcher,
+                || cancellation.is_cancelled(),
+            )
             .await?;
         Ok(response.result)
     }
@@ -80,25 +88,6 @@ impl AsyncHostRequestDispatcher for ContextDispatcher {
     fn dispatch(&self, request: ComponentHostRequest) -> HostRequestFuture {
         let method = request.method;
         match method.as_str() {
-            CONTEXT_HOST_SEARCH_METHOD => {
-                let input = match decode::<ProcessContextSearchInput>(request.params, &method) {
-                    Ok(input) => input,
-                    Err(error) => return Box::pin(async move { Err(error) }),
-                };
-                let search = Arc::clone(&self.input.search);
-                Box::pin(async move { host_result(search.search(input.query).await, &method) })
-            }
-            CONTEXT_HOST_RECALL_MEMORY_METHOD => {
-                let input = match decode::<ProcessContextRecallInput>(request.params, &method) {
-                    Ok(input) => input,
-                    Err(error) => return Box::pin(async move { Err(error) }),
-                };
-                let memory = Arc::clone(&self.input.memory);
-                let memory_context = self.input.memory_context.clone();
-                Box::pin(async move {
-                    host_result(memory.recall(input.query, memory_context).await, &method)
-                })
-            }
             CONTEXT_HOST_PROVIDER_METHOD => {
                 let input = match decode::<ProcessContextProviderInput>(request.params, &method) {
                     Ok(input) => input,
@@ -116,14 +105,9 @@ impl AsyncHostRequestDispatcher for ContextDispatcher {
                     );
                     return Box::pin(async move { Err(error) });
                 };
-                let provider_input = ContextBuildInput {
-                    task: input.task,
-                    search: Arc::clone(&self.input.search),
-                    memory: Arc::clone(&self.input.memory),
-                    memory_context: self.input.memory_context.clone(),
-                };
+                let context = self.input.clone();
                 Box::pin(
-                    async move { host_result(provider.provide(&provider_input).await, &method) },
+                    async move { host_result(provider.provide(input, &context).await, &method) },
                 )
             }
             _ => Box::pin(async move {
@@ -137,7 +121,6 @@ impl AsyncHostRequestDispatcher for ContextDispatcher {
 }
 
 pub struct ProcessContextProvider {
-    provider_id: String,
     client: Arc<ProcessExportClient>,
     skills: crate::domain::SkillRuntimeSettings,
 }
@@ -148,9 +131,7 @@ impl ProcessContextProvider {
         workspace: &Path,
         skills: crate::domain::SkillRuntimeSettings,
     ) -> Result<Self> {
-        let provider_id = config.module_id().to_owned();
         Ok(Self {
-            provider_id,
             skills,
             client: Arc::new(ProcessExportClient::connect(
                 "context_provider",
@@ -165,18 +146,24 @@ impl ProcessContextProvider {
 
 #[async_trait]
 impl RepoAwareContextProvider for ProcessContextProvider {
-    async fn provide(&self, input: &ContextBuildInput) -> Result<Vec<ContextChunk>> {
+    async fn provide(
+        &self,
+        input: ProcessContextProviderInput,
+        context: &ContextBuildInput,
+    ) -> Result<Vec<ContextChunk>> {
         let request = crate::contracts::ProcessContextProviderRequest {
-            input: ProcessContextProviderInput {
-                provider_id: self.provider_id.clone(),
-                task: input.task.clone(),
-                metadata: Value::Null,
-            },
+            input,
+            attribution: context.attribution,
             skills: self.skills.clone(),
         };
         let response: ProcessContextChunksResponse = self
             .client
-            .invoke(PROCESS_CONTEXT_PROVIDER_METHOD, &request)
+            .invoke_with_dispatcher_and_cancel_check(
+                PROCESS_CONTEXT_PROVIDER_METHOD,
+                &request,
+                Arc::new(NoAsyncHostRequests),
+                || context.scope.cancellation.is_cancelled(),
+            )
             .await?;
         Ok(response.result)
     }

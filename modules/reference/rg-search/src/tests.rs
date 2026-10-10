@@ -69,7 +69,9 @@ fn rg_command_uses_safe_path_filters_as_search_roots_and_globs() {
 #[test]
 fn literal_path_filters_match_python_component() {
     use proteus_contracts::contracts::{
-        PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD, ProcessSearchResponse,
+        ExecutionAttribution, PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
+        PROCESS_CONTEXT_PROVIDER_METHOD, ProcessContextChunksResponse, ProcessContextProviderInput,
+        ProcessContextProviderRequest,
     };
     use proteus_module_protocol::{
         ProcessComponentBinding, ProcessExportBinding,
@@ -97,9 +99,9 @@ fn literal_path_filters_match_python_component() {
     let script = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../examples/modules/search-process/search.py");
     let binding = ProcessExportBinding::new(
-        "search",
+        "context_provider",
         "python_rg",
-        PROCESS_SEARCH_CONTRACT_VERSION,
+        PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
         json!({}),
     )
     .unwrap();
@@ -154,17 +156,28 @@ fn literal_path_filters_match_python_component() {
         let terminal = broker
             .invoke_blocking(
                 &target,
-                PROCESS_SEARCH_METHOD,
-                serde_json::to_value(&query).unwrap(),
+                PROCESS_CONTEXT_PROVIDER_METHOD,
+                serde_json::to_value(ProcessContextProviderRequest {
+                    input: ProcessContextProviderInput {
+                        provider_id: "python_rg".into(),
+                        task: proteus_contracts::domain::AgentTask::new("search", dir.clone()),
+                        metadata: serde_json::to_value(&query).unwrap(),
+                    },
+                    attribution: ExecutionAttribution::detached(
+                        proteus_contracts::domain::new_execution_id(),
+                    ),
+                    skills: Default::default(),
+                })
+                .unwrap(),
                 Duration::from_secs(2),
             )
             .unwrap();
         let InvocationTerminal::Success(value) = terminal else {
             panic!("Python search failed: {terminal:?}");
         };
-        let response: ProcessSearchResponse = serde_json::from_value(value).unwrap();
+        let response: ProcessContextChunksResponse = serde_json::from_value(value).unwrap();
         let mut python_paths = response
-            .chunks
+            .result
             .into_iter()
             .map(|chunk| chunk.path.unwrap().display().to_string())
             .collect::<Vec<_>>();

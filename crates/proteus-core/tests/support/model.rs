@@ -47,6 +47,29 @@ pub fn add_direct_patch_tool(config: &mut AppConfig) {
 }
 
 #[allow(dead_code)]
+pub fn add_search_tool(config: &mut AppConfig) {
+    config.components.insert(
+        "test-search".into(),
+        serde_json::from_value(serde_json::json!({
+            "command": reference_module(), "exports": {"tool": {"rg_search": {}}}
+        }))
+        .unwrap(),
+    );
+}
+
+#[allow(dead_code)]
+pub fn add_allow_all_policy(config: &mut AppConfig) {
+    config.modules.policy = Some("allow_all".into());
+    config.components.insert(
+        "test-policy".into(),
+        serde_json::from_value(serde_json::json!({
+            "command": reference_module(), "exports": {"policy": {"allow_all": {}}}
+        }))
+        .unwrap(),
+    );
+}
+
+#[allow(dead_code)]
 pub fn toml_component() -> String {
     format!(
         "\n[components.test-model]\ncommand = {}\n[components.test-model.exports.model.fake]\n[module_config.model.fake]\nimplementation = \"fake\"\n",

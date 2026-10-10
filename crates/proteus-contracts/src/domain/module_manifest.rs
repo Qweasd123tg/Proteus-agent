@@ -17,8 +17,6 @@ pub struct ModuleManifest {
 #[non_exhaustive]
 pub enum ModuleKind {
     Model,
-    Search,
-    Memory,
     Context,
     Tool,
     Policy,
@@ -61,7 +59,7 @@ impl ModuleManifest {
 /// Идентификатор namespace в Registry.
 ///
 /// Ядро предоставляет стабильные строковые константы для host-defined behavior
-/// slots и tool catalog (`slot::TOOL`, `slot::SEARCH`, и т.д.). Строковый тип
+/// slots и tool catalog (`slot::TOOL`, `slot::CONTEXT`, и т.д.). Строковый тип
 /// унифицирует ключи catalog/topology, но не делает runtime lifecycle
 /// произвольно расширяемым: новый исполняемый slot требует нового contract и
 /// точки вызова в core.
@@ -76,8 +74,6 @@ pub mod slot {
     use std::borrow::Cow;
 
     pub const MODEL: SlotId = Cow::Borrowed(ModuleKind::Model.as_str());
-    pub const SEARCH: SlotId = Cow::Borrowed(ModuleKind::Search.as_str());
-    pub const MEMORY: SlotId = Cow::Borrowed(ModuleKind::Memory.as_str());
     pub const CONTEXT: SlotId = Cow::Borrowed(ModuleKind::Context.as_str());
     pub const TOOL: SlotId = Cow::Borrowed(ModuleKind::Tool.as_str());
     pub const POLICY: SlotId = Cow::Borrowed(ModuleKind::Policy.as_str());
@@ -94,10 +90,8 @@ pub mod slot {
 /// namespace. `Tool` обозначает concrete tool registrations, а не выбираемый
 /// behavior slot с ключом `modules.tool`.
 impl ModuleKind {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 8] = [
         Self::Model,
-        Self::Search,
-        Self::Memory,
         Self::Context,
         Self::Tool,
         Self::Policy,
@@ -110,8 +104,6 @@ impl ModuleKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Model => "model",
-            Self::Search => "search",
-            Self::Memory => "memory",
             Self::Context => "context",
             Self::Tool => "tool",
             Self::Policy => "policy",

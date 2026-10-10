@@ -1,33 +1,24 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::{
-    contracts::{MemoryInvocationContext, MemoryStore, SearchBackend},
+    contracts::{ExecutionAttribution, ExecutionScope},
     domain::{AgentTask, ContextBundle},
 };
 
 #[derive(Clone)]
 pub struct ContextBuildInput {
     pub task: AgentTask,
-    pub search: Arc<dyn SearchBackend>,
-    pub memory: Arc<dyn MemoryStore>,
-    pub memory_context: MemoryInvocationContext,
+    pub scope: ExecutionScope,
+    pub attribution: ExecutionAttribution,
 }
 
 impl ContextBuildInput {
-    pub fn new(
-        task: AgentTask,
-        search: Arc<dyn SearchBackend>,
-        memory: Arc<dyn MemoryStore>,
-        memory_context: MemoryInvocationContext,
-    ) -> Self {
+    pub fn new(task: AgentTask, scope: ExecutionScope, attribution: ExecutionAttribution) -> Self {
         Self {
             task,
-            search,
-            memory,
-            memory_context,
+            scope,
+            attribution,
         }
     }
 }

@@ -12,7 +12,6 @@ name = "dev-slim"
 # Slim profile for dogfooding Proteus itself. Keep this focused on the active
 # coding-agent path; parked/research capabilities stay out of the hot surface.
 workflow = "coding.single_loop"
-search = "rg"
 context = "repo_aware"
 policy = "ask_write"
 compactor = "codex"
@@ -30,7 +29,9 @@ command = "proteus-reference-module"
 [components.reference-capabilities]
 command = "proteus-reference-module"
 
-[components.reference-capabilities.exports.search.rg]
+[components.reference-capabilities.exports.tool.rg_search]
+
+[components.reference-capabilities.exports.context_provider.rg_search]
 
 [components.reference-capabilities.exports.policy.ask_write]
 
@@ -54,6 +55,7 @@ ask_before = ["apply_patch", "shell"]
 # Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
 
 [module_config.context.repo_aware]
+search_provider = "rg_search"
 providers = ["project_instructions", "manifest", "git_status", "repo_tree", "search"]
 max_context_bytes = 25000
 max_bytes_per_file = 5000

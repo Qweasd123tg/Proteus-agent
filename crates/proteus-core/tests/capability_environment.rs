@@ -158,6 +158,7 @@ async fn worker_scenario() -> Result<()> {
                 serde_json::to_value(
                     proteus_contracts::contracts::ProcessContextProviderRequest {
                         input,
+                        attribution: ExecutionAttribution::detached(new_execution_id()),
                         skills: Default::default(),
                     },
                 )?,

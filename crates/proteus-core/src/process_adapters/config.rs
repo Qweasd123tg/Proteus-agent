@@ -303,7 +303,7 @@ mod tests {
             "command": "worker",
             "description": "fixture",
             "exports": {
-                "search": {
+                "context_provider": {
                     "fixture": {"timeout_ms": 1000}
                 }
             }
@@ -317,13 +317,13 @@ mod tests {
                 .exports()
                 .map(|(slot, id, _)| (slot, id))
                 .collect::<Vec<_>>(),
-            [("search", "fixture")]
+            [("context_provider", "fixture")]
         );
 
         serde_json::from_value::<ProcessComponentConfig>(serde_json::json!({
             "command": "worker",
-            "legacy_slot": "search",
-            "exports": {"search": {"fixture": {}}}
+            "legacy_slot": "context_provider",
+            "exports": {"context_provider": {"fixture": {}}}
         }))
         .expect_err("unknown launch fields must fail");
     }
@@ -341,7 +341,7 @@ mod tests {
 
         let zero: ProcessComponentConfig = serde_json::from_value(serde_json::json!({
             "command": "worker",
-            "exports": {"search": {"fixture": {"timeout_ms": 0}}}
+            "exports": {"context_provider": {"fixture": {"timeout_ms": 0}}}
         }))
         .expect("shape");
         zero.validate_for("fixture", "components.fixture")

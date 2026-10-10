@@ -307,7 +307,6 @@ async fn load_rejects_unknown_module_key() {
         &config_path,
         r#"
 [modules]
-memory = "jsonl"
 memory_policy = "carry_forward"
 "#,
     )
