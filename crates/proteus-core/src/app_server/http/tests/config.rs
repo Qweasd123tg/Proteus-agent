@@ -61,7 +61,6 @@ async fn route_config_builder_returns_editable_module_slots() {
             "tool_exposure",
             "policy",
             "search",
-            "patch",
             "memory",
         ]
     );
@@ -306,7 +305,11 @@ model = "fake-smart"
 
 "#
         .to_owned()
-            + &crate::test_model::toml_component(),
+            + &crate::test_model::toml_component()
+            + &format!(
+                "\n[components.test-patch]\ncommand = {}\n[components.test-patch.exports.tool.direct_patch]\n",
+                serde_json::to_string(&crate::test_model::reference_module()).unwrap()
+            ),
     )
     .expect("write config");
     let config = {

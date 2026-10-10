@@ -73,7 +73,6 @@ Wire shape и правила validation — в
 | `memory` | `select_one` | `modules.memory` | да | `jsonl`, `sqlite` |
 | `context` | `select_one` | `modules.context` | да | `simple`, `repo_aware`, `codex_context` |
 | `policy` | `select_one` | `modules.policy` | да | `allow_all`, `ask_write`, `codex_policy`, `opencode_policy` |
-| `patch` | `select_one` | `modules.patch` | да | `direct`, `codex` |
 | `compactor` | `select_one` | `modules.compactor` | да | `codex` |
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да, `tool/v5` | `reference.tools` и узкие варианты |
@@ -365,17 +364,6 @@ Profile `context-search-chatgpt` демонстрирует замену `codex_
 выбранную policy в core, поэтому module не может обойти plan/normal/auto
 семантику.
 
-### Patch
-
-Получает canonical `Patch` и cwd конкретного вызова через `patch/v1`.
-`PatchApplier::apply` принимает рабочий каталог; общий process adapter проверяет,
-что он существует и находится внутри привязанного workspace. Reference `direct`
-применяет внутренний Proteus format транзакционно; `codex` повторяет parser,
-context matching и последовательное применение pinned Codex. Оба exports
-проходят один adapter и authority path. Core facade передаёт opaque patch text;
-синтаксис выбранной реализации задают profile instructions. Граница `codex`
-и provenance находятся в [UPSTREAM.md](../../modules/reference/codex-patch/UPSTREAM.md).
-
 ### Compactor
 
 Получает `CompactionInput.request` — полный pending canonical model request,
@@ -455,6 +443,21 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 `git_tools`, `shell_tools`, `plan_tool`, `skill_tool`, `rust_lsp` и
 `policy_tools`. Они используют тот же `tool/v5` contract; selector не
 меняет authority.
+
+`apply_patch` предоставляется отдельным export `tool/direct_patch` или
+`tool/codex_patch`, не входит в агрегат `reference.tools` и не имеет собственного
+слота. Оба exports объявляют одно имя `apply_patch`; подключайте только один,
+иначе registry отклонит дубликат. Включение задаётся обычным `tools.enabled`.
+Вызов принимает opaque текст в `args.patch` (function) либо `args.input`
+(freeform), возвращает `ToolResult` и проходит общий policy/approval/safety path.
+Tool implementation проверяет `workdir` относительно workspace вызова.
+`direct_patch` применяет внутренний Proteus format транзакционно;
+`codex_patch` повторяет parser, context matching и последовательное применение
+pinned Codex. Синтаксис задают profile instructions; Core его не разбирает.
+Граница и provenance — в
+[UPSTREAM.md](../../modules/reference/codex-patch/UPSTREAM.md).
+Search и memory сохраняют отдельные contracts: ими также пользуются context
+callbacks и команды приложения.
 
 Host-owned `SkillRuntimeSettings` поступают каждому tool invocation и context
 provider из immutable сборки. `context_provider/v3` добавляет read-only метод

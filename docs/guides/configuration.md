@@ -434,7 +434,7 @@ child profiles; запуск parent по явному пути не подхва
 
 ## Выбор Behavior Modules
 
-`[modules]` имеет восемь optional keys:
+`[modules]` имеет семь optional keys:
 
 ```toml
 [modules]
@@ -443,7 +443,6 @@ search = "rg"
 memory = "sqlite"
 context = "repo_aware"
 policy = "ask_write"
-patch = "direct"
 compactor = "codex"
 tool_exposure = "codex_dynamic"
 ```
@@ -647,24 +646,25 @@ memory:           jsonl, sqlite
 context:          simple, repo_aware, codex_context
 context_provider: skills
 policy:           allow_all, ask_write, codex_policy, opencode_policy
-patch:            direct, codex
 compactor:        codex
 tool_exposure:    codex_dynamic
-tool:             reference.tools и узкие selectors
+tool:             reference.tools и узкие selectors, direct_patch, codex_patch
 ```
 
 Это reference/test inventory, не обязательный пакет. Любой другой executable,
 прошедший тот же contract, настраивается тем же способом.
 
-Codex-family fragments выбирают `modules.patch = "codex"` и exact export
-`components.reference-capabilities.exports.patch.codex`; остальные packaged
-profiles сохраняют `direct`. Tool `apply_patch` передаёт текст выбранному
-module без знания его алгоритма. При смене patch export согласуйте синтаксис
-в instructions: `prompts/codex-default.md` описывает `codex`,
-`prompts/direct-patch.md` — `direct`. Installer публикует оба prompt assets.
+Codex-family fragments подключают exact tool export
+`components.reference-capabilities.exports.tool.codex_patch`; остальные packaged
+profiles подключают `tool.direct_patch`. Оба предоставляют `apply_patch`, который
+включается через `tools.enabled`; одновременно подключать оба нельзя из-за
+дублирующегося имени tool. Отдельной настройки выбора patch slot нет.
+Core не знает алгоритма. При смене export согласуйте синтаксис в instructions:
+`prompts/codex-default.md` описывает `codex_patch`,
+`prompts/direct-patch.md` — `direct_patch`. Installer публикует оба prompt assets.
 
 В рабочих Codex fragments задано
-`module_config.patch.codex.reject_self_move = true`: перенос на тот же
+`module_config.tool.codex_patch.reject_self_move = true`: перенос на тот же
 нормализованный путь отклоняется до записи любых hunks. Это явное отличие
 от pinned Codex. У export настройка по умолчанию выключена; для точного
 сравнения используйте `false`. [Граница режима](../../modules/reference/codex-patch/UPSTREAM.md).
@@ -794,9 +794,9 @@ enabled = [
 
 Имена должны существовать в одном из sources:
 
-- core facade tools: `search`, `apply_patch`, `remember_fact`,
+- core facade tools: `search`, `remember_fact`,
   `request_user_input`;
-- объявленные component tool exports;
+- объявленные component tool exports, включая `apply_patch`;
 - `[[tools.configured]]`;
 - discovered `[[tools.mcp_servers]]`;
 - provider-hosted tools.

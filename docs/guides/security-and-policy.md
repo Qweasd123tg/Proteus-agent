@@ -197,7 +197,7 @@ Core facade `search` и workflow-owned search/describe также разреша
 
 | Tool | Safety | Поведение |
 |---|---|---|
-| `apply_patch` | `WritesFiles` | применяет workspace-scoped patch через `PatchApplier` |
+| `apply_patch` | `WritesFiles` | process tool применяет workspace-scoped patch выбранным алгоритмом |
 | `remember_fact` | `WritesFiles` | кладёт preference/fact в `MemoryStore` (пишет в SQLite/JSONL, не в workspace-файлы) |
 | `search` | `ReadOnly` | вызывает выбранный `SearchBackend` |
 | `request_user_input` / `AskUserQuestion` | `ReadOnly` | запрашивает typed ответ через `UserInputTransport`; второй id — provider-compatible alias |
@@ -329,17 +329,17 @@ duplicate-name и visibility checks, но выполняются OpenAI внут
 
 ## Workspace Boundary
 
-`apply_patch` остаётся core tool-ом, но сам алгоритм применения patch живёт в
-выбранном `PatchApplier`. Reference modules `direct-patch` и `codex-patch`
+`apply_patch` — обычный process tool, включая алгоритм применения patch.
+Reference exports `tool/direct_patch` и `tool/codex_patch`
 получают рабочий каталог вызова. Необязательный `workdir` у `apply_patch`
 задаёт существующий каталог внутри workspace; относительный путь разрешается
-от workspace, отсутствие параметра выбирает workspace. Общий process adapter
-отклоняет каталог вне этой границы, независимо от реализации patch. Модули
+от workspace, отсутствие параметра выбирает workspace. Обе tool implementations
+отклоняют каталог вне этой границы. Модули
 канонизируют `cwd`, проверяют target path и отклоняют absolute paths,
 parent traversal и
 symlink-escape; конечный symlink запрещён для Add/Update/Delete и обеих сторон
 Move, даже если он указывает обратно внутрь workspace. `ToolOrchestrator` не
-делает workspace-санитизации за `PatchApplier` — это обязанность выбранной
+делает workspace-санитизации за process tool — это обязанность выбранной
 реализации.
 
 `direct-patch` принимает только bare `@@` внутреннего формата; positional
@@ -362,7 +362,7 @@ Reference `codex-patch` выбран в Codex-family profiles. Он приним
 
 В packaged proxy-профилях `codex`/`glm` model-facing форма `apply_patch` —
 обычный function tool. Явно настроенный freeform custom tool всё равно проходит
-через тот же `ToolOrchestrator`, `ApprovalPolicy` и `PatchApplier`.
+через тот же `ToolOrchestrator`, `ApprovalPolicy` и process tool adapter.
 
 `coding.codex_loop` распознаёт поддержанные формы shell-команды `apply_patch`
 и явно передаёт её через целевой tool. Исходный `shell`/`exec_command` должен

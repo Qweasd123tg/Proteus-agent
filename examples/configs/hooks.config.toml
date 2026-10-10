@@ -20,7 +20,6 @@ search = "rg"
 memory = "jsonl"
 context = "simple"
 policy = "allow_all"
-patch = "direct"
 compactor = "codex"
 tool_exposure = "codex_dynamic"
 
@@ -39,7 +38,7 @@ command = "proteus-reference-module"
 
 [components.reference-agent.exports.policy.allow_all]
 
-[components.reference-agent.exports.patch.direct]
+[components.reference-agent.exports.tool.direct_patch]
 
 [components.reference-agent.exports.compactor.codex]
 

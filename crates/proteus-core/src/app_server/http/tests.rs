@@ -125,6 +125,7 @@ fn dogfood_loop_config() -> AppConfig {
         .expect("default provider")
         .stream = false;
     crate::test_support::select_test_modules(&mut config, "coding.single_loop");
+    crate::test_model::add_direct_patch_tool(&mut config);
     config.tools.enabled = vec!["apply_patch".to_owned(), "request_user_input".to_owned()];
     config.module_config.insert(
         "policy".to_owned(),
@@ -140,7 +141,7 @@ fn dogfood_loop_config() -> AppConfig {
 }
 
 fn dogfood_loop_catalog() -> ModuleCatalog {
-    crate::test_support::module_catalog()
+    crate::test_support::module_catalog_for(&dogfood_loop_config())
 }
 
 fn json_body(value: Value) -> Full<Bytes> {

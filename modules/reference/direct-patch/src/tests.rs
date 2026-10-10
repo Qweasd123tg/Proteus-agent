@@ -17,8 +17,7 @@ fn replaces_exact_text_once() {
     )
     .unwrap();
 
-    assert!(result.ok);
-    assert!(result.summary.contains("updated sample.txt"));
+    assert!(result.contains("updated sample.txt"));
     assert_eq!(
         fs::read_to_string(dir.path().join("sample.txt")).unwrap(),
         "patched modular agent\n"
@@ -34,8 +33,7 @@ fn adds_new_file_from_internal_format() {
     )
     .unwrap();
 
-    assert!(result.ok);
-    assert!(result.summary.contains("added nested/new.txt"));
+    assert!(result.contains("added nested/new.txt"));
     assert_eq!(
         fs::read_to_string(dir.path().join("nested").join("new.txt")).unwrap(),
         "hello\npatch\n"
@@ -91,13 +89,12 @@ fn preflight_failure_does_not_create_directories_for_an_earlier_add() {
 #[test]
 fn sequential_operations_use_the_planned_result_of_the_previous_operation() {
     let dir = workspace();
-    let result = apply_patch(
+    apply_patch(
         "*** Begin Patch\n*** Update File: sample.txt\n@@\n-hello modular agent\n+first update\n*** Update File: sample.txt\n*** Move to: ./moved.txt\n@@\n-first update\n+second update\n*** Update File: moved.txt\n@@\n-second update\n+final content\n*** End Patch",
         dir.path(),
     )
     .unwrap();
 
-    assert!(result.ok);
     assert!(!dir.path().join("sample.txt").exists());
     assert_eq!(
         fs::read_to_string(dir.path().join("moved.txt")).unwrap(),
@@ -135,8 +132,7 @@ fn delete_then_move_preserves_source_mode_when_destination_bytes_match() {
     fs::write(dir.path().join("b"), "new\n").unwrap();
     fs::set_permissions(dir.path().join("a"), fs::Permissions::from_mode(0o744)).unwrap();
     fs::set_permissions(dir.path().join("b"), fs::Permissions::from_mode(0o644)).unwrap();
-    let result = apply_patch("*** Begin Patch\n*** Delete File: b\n*** Update File: a\n*** Move to: b\n@@\n-old\n+new\n*** End Patch", dir.path()).unwrap();
-    assert!(result.ok);
+    apply_patch("*** Begin Patch\n*** Delete File: b\n*** Update File: a\n*** Move to: b\n@@\n-old\n+new\n*** End Patch", dir.path()).unwrap();
     assert!(!dir.path().join("a").exists());
     assert_eq!(fs::read_to_string(dir.path().join("b")).unwrap(), "new\n");
     assert_eq!(

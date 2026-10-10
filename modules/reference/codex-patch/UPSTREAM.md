@@ -1,6 +1,6 @@
 # Источник Алгоритма
 
-Reference export `patch/codex` адаптирован из OpenAI Codex commit
+Reference export `tool/codex_patch` адаптирован из OpenAI Codex commit
 `67cc3c318dc8b5532db6ade4182b1dc6f3870889`:
 
 - `codex-rs/apply-patch/src/{parser,streaming_parser,seek_sequence}.rs` — parser
@@ -18,8 +18,10 @@ Reference export `patch/codex` адаптирован из OpenAI Codex commit
 рядом. Перенесённые файлы помечены как адаптированные.
 
 Выбран локальный режим и default `ApplyPatchPreserveLineEndings = false`.
-Путь исполнения — общий `patch/v1`: opaque `Patch.content`, cwd вызова внутри workspace,
-`PatchResult` или module error. Remote Environment ID отклоняется явно.
+Путь исполнения — общий `tool/v5`: canonical `ToolCall` с opaque текстом
+`args.patch` (function) либо `args.input` (freeform), cwd вызова внутри workspace,
+`ToolResult` или module error. Policy/approval/safety принадлежат общему tool path.
+Remote Environment ID отклоняется явно.
 Workspace path validation сохраняет существующее ограничение Proteus:
 относительные пути без parent traversal и без symlink-компонентов. Это
 ограничение текущей локальной сборки, а не полная filesystem semantics Codex.
@@ -30,7 +32,7 @@ Proxy-профили сохраняют function tool surface; freeform transpor
 
 ## Защита От Переноса На Тот Же Путь
 
-`module_config.patch.codex.reject_self_move = true` — явно выбранное отличие:
+`module_config.tool.codex_patch.reject_self_move = true` — явно выбранное отличие:
 verification отклоняет `Move to`, если нормализованные source и destination
 совпадают. Весь patch проверяется до первой записи, поэтому такой отказ
 сохраняет исходные файлы и не применяет предыдущие hunks.

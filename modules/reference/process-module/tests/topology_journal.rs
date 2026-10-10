@@ -86,7 +86,6 @@ fn assert_separate_slot_authority(config: &AppConfig) {
             "memory",
             "context",
             "policy",
-            "patch",
             "compactor",
             "tool_exposure",
             "tool",

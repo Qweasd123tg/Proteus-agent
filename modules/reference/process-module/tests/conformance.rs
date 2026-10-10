@@ -4,26 +4,25 @@ use proteus_contracts::{
     contracts::{
         CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD, ExecutionAttribution,
         PROCESS_COMPACTOR_METHOD, PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_PROVIDER_METHOD,
-        PROCESS_MEMORY_RECALL_METHOD, PROCESS_MEMORY_REMEMBER_METHOD, PROCESS_PATCH_APPLY_METHOD,
+        PROCESS_MEMORY_RECALL_METHOD, PROCESS_MEMORY_REMEMBER_METHOD,
         PROCESS_POLICY_EVALUATE_METHOD, PROCESS_SEARCH_METHOD, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
         PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, PROCESS_WORKFLOW_METHOD,
         ProcessCompactionResponse, ProcessContextChunksResponse, ProcessContextInput,
         ProcessContextProviderInput, ProcessContextRecallInput, ProcessContextResponse,
         ProcessMemoryRecallInput, ProcessMemoryRecallResponse, ProcessMemoryRememberInput,
-        ProcessPatchInput, ProcessPatchResponse, ProcessPolicyEvaluateInput, ProcessPolicyResponse,
-        ProcessSearchResponse, ProcessToolExposureInput, ProcessToolExposureResponse,
-        ProcessToolInvokeInput, ProcessToolInvokeResponse, ProcessToolListResponse,
-        ProcessWorkflowInput, ProcessWorkflowResponse, ProcessWorkflowRuntimeInfo,
-        ToolExposureInput, ToolExposureOutput, ToolExposureRequest,
-        WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
-        WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
-        WORKFLOW_HOST_RUNTIME_STATUS_METHOD, WORKFLOW_HOST_SELECT_TOOLS_METHOD,
-        WORKFLOW_HOST_VISIBLE_TOOLS_METHOD, WorkflowBuildContextRequest,
-        WorkflowCompactHistoryRequest, WorkflowCompleteModelRequest, WorkflowHostAck,
-        WorkflowRuntimeStatus,
+        ProcessPolicyEvaluateInput, ProcessPolicyResponse, ProcessSearchResponse,
+        ProcessToolExposureInput, ProcessToolExposureResponse, ProcessToolInvokeInput,
+        ProcessToolInvokeResponse, ProcessToolListResponse, ProcessWorkflowInput,
+        ProcessWorkflowResponse, ProcessWorkflowRuntimeInfo, ToolExposureInput, ToolExposureOutput,
+        ToolExposureRequest, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
+        WORKFLOW_HOST_COMPACT_HISTORY_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
+        WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
+        WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
+        WorkflowBuildContextRequest, WorkflowCompactHistoryRequest, WorkflowCompleteModelRequest,
+        WorkflowHostAck, WorkflowRuntimeStatus,
     },
     domain::{
-        AgentTask, ContextBundle, MemoryItem, MemoryQuery, ModelRef, Patch, PolicyDecision,
+        AgentTask, ContextBundle, MemoryItem, MemoryQuery, ModelRef, PolicyDecision,
         ReasoningConfig, ToolCall, ToolSafety, ToolSpec, new_call_id, new_execution_id,
         new_session_id, new_thread_id, new_turn_id,
     },
@@ -152,8 +151,8 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
         ("tool", "skill_tool"),
         ("tool", "policy_tools"),
         ("search", "rg"),
-        ("patch", "direct"),
-        ("patch", "codex"),
+        ("tool", "direct_patch"),
+        ("tool", "codex_patch"),
         ("memory", "jsonl"),
         ("memory", "sqlite"),
         ("context", "simple"),
@@ -420,17 +419,19 @@ fn search_patch_and_memory_round_trip_canonical_dtos() {
         assert_eq!(response.chunks[0].source, "rg");
     }
 
-    for module_id in ["direct", "codex"] {
-        let patch = connect(workspace.path(), "patch", module_id, json!({}));
+    for module_id in ["direct_patch", "codex_patch"] {
+        let patch = connect(workspace.path(), "tool", module_id, json!({}));
         let filename = format!("added-{module_id}.txt");
-        let response: ProcessPatchResponse = invoke(
+        let response: ProcessToolInvokeResponse = invoke(
             &patch,
-            PROCESS_PATCH_APPLY_METHOD,
-            serde_json::to_value(ProcessPatchInput {
-                patch: Patch::new(format!(
+            PROCESS_TOOL_INVOKE_METHOD,
+            serde_json::to_value(ProcessToolInvokeInput {
+                call: ToolCall::new(new_call_id(), "apply_patch", json!({"patch": format!(
                     "*** Begin Patch\n*** Add File: {filename}\n+created by process\n*** End Patch",
-                )),
+                )})),
                 cwd: workspace.path().to_path_buf(),
+                attribution: ExecutionAttribution::detached(new_execution_id()),
+                skills: Default::default(),
             })
             .expect("patch input"),
         );

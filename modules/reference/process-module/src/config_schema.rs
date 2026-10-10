@@ -12,7 +12,7 @@ pub(crate) fn describe(slot: &str, id: &str, config: &Value) -> Option<ModuleCon
         "hook" => hook_pack::config_schema(id),
         "memory" if id == "jsonl" => memory_pack::config_schema(),
         "memory" if id == "sqlite" => sqlite_memory::config_schema(),
-        "search" | "patch" => ModuleConfigSchema::default(),
+        "search" => ModuleConfigSchema::default(),
         _ => return None,
     })
 }

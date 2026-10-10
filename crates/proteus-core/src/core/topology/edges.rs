@@ -61,7 +61,6 @@ pub(super) fn build_edges(
             edges.push(edge("config", &tool_node, "enables", Some("enabled")));
         }
         match tool.name.as_str() {
-            "apply_patch" => edges.push(edge(&tool_node, "slot:patch", "uses", None)),
             "search" | "grep" | "find_files" => {
                 edges.push(edge(&tool_node, "slot:search", "uses", None));
             }

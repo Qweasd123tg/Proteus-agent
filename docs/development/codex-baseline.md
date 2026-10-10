@@ -63,15 +63,15 @@ requests, прямое исполнение ранее скрытого tool, jo
 
 ### Применение Патчей
 
-Codex-family profiles используют reference export `patch/codex` через общий
-`patch/v1`. Parser, default `NormalizeToLf` replacement algorithm, verification
+Codex-family profiles используют reference export `tool/codex_patch` через общий
+`tool/v5`. Parser, default `NormalizeToLf` replacement algorithm, verification
 и порядок записи адаптированы из `codex-rs/apply-patch/src/` pinned commit;
 [provenance и ограничения](../../modules/reference/codex-patch/UPSTREAM.md)
 перечисляют точные upstream files.
 
 Рабочие fragments включают `reject_self_move` и отклоняют перенос файла на
 самого себя до writes. Это согласованное отличие; точное pinned сравнение
-этого случая требует `module_config.patch.codex.reject_self_move = false`.
+этого случая требует `module_config.tool.codex_patch.reject_self_move = false`.
 
 [Module fixtures](../../modules/reference/codex-patch/src/tests.rs) проверяют
 `@@ context`, EOF anchoring, приоритет exact перед whitespace/Unicode matching,
@@ -81,7 +81,7 @@ Codex-family profiles используют reference export `patch/codex` чер
 parser fixtures проверяют тот же синтаксис при разбиении входа на дельты.
 
 [Process substitution](../../modules/reference/process-module/tests/patch_transaction.rs)
-меняет `direct` на `codex` в том же slot: common patch проходит оба exports,
+меняет `tool/direct_patch` на `tool/codex_patch`: common patch проходит оба exports,
 context/EOF semantics выбирается реализацией, module error не разрушает broker.
 [Conformance](../../modules/reference/process-module/tests/conformance.rs)
 проверяет handshake и canonical DTO обоих exports. Существующий

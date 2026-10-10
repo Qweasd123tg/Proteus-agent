@@ -137,12 +137,6 @@ pub trait PolicyModule: Send + Sync + 'static {
 
 pub type PolicyModuleObject = Box<dyn PolicyModule>;
 
-pub trait PatchModule: Send + Sync + 'static {
-    fn apply_json(&self, patch_json: String, cwd: String) -> ProcessModuleResult<String>;
-}
-
-pub type PatchModuleObject = Box<dyn PatchModule>;
-
 pub trait SearchModule: Send + Sync + 'static {
     fn search_json(&self, query_json: String) -> ProcessModuleResult<String>;
 }
@@ -354,11 +348,6 @@ pub trait ModuleRegistry {
         &mut self,
         module_id: String,
         policy: PolicyModuleObject,
-    ) -> ProcessModuleResult<()>;
-    fn register_patch(
-        &mut self,
-        module_id: String,
-        applier: PatchModuleObject,
     ) -> ProcessModuleResult<()>;
     fn register_search(
         &mut self,

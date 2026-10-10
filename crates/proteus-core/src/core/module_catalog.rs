@@ -7,8 +7,8 @@ mod tools;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model, PatchApplier,
-        SearchBackend, ToolExposure, Workflow,
+        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model, SearchBackend,
+        ToolExposure, Workflow,
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
@@ -325,14 +325,6 @@ impl ModuleCatalog {
         ctx: &PolicyBuildContext<'_>,
     ) -> Result<Arc<dyn ApprovalPolicy>> {
         self.build_typed::<dyn ApprovalPolicy>(slot::POLICY, module, &ModuleBuildInput::Policy(ctx))
-    }
-
-    pub(crate) fn build_patch(
-        &self,
-        module: &str,
-        ctx: &ModuleBuildContext<'_>,
-    ) -> Result<Arc<dyn PatchApplier>> {
-        self.build_typed::<dyn PatchApplier>(slot::PATCH, module, &ModuleBuildInput::Module(ctx))
     }
 
     pub(crate) fn build_compactor(

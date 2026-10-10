@@ -5,7 +5,6 @@
 workflow = "coding.codex_loop"
 search = "rg"
 context = "codex_context"
-patch = "codex"
 compactor = "codex"
 
 [components.reference-workflow]
@@ -28,7 +27,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.reference-capabilities.exports.policy.codex_policy]
 
-[components.reference-capabilities.exports.patch.codex]
+[components.reference-capabilities.exports.tool.codex_patch]
 
 [components.reference-capabilities.exports.compactor.codex]
 
@@ -52,7 +51,7 @@ surface = "none"
 [module_config.compactor.codex]
 # Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
 
-[module_config.patch.codex]
+[module_config.tool.codex_patch]
 reject_self_move = true
 
 [module_config.context.codex_context]

@@ -493,7 +493,8 @@ future и не позволяет продолжить оборванный call
 - `TurnFinished`;
 - `Error`.
 
-`PatchApplied` существует в enum, но текущие coding workflows его не испускают. Даже успешный `apply_patch` сейчас фиксируется обычным `ToolFinished`, потому что отдельный patch event path ещё не подключён.
+`apply_patch` фиксируется обычным `ToolFinished`, как любой другой process tool;
+отдельного patch event path нет.
 
 Автоматического post-turn memory event path больше нет: `MemoryPolicy` и
 эвристика `carry_forward` удалены. `remember_fact` передаёт tool-owned

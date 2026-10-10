@@ -1,43 +1,16 @@
-//! Direct `PatchApplier` reference process module.
+//! Direct `apply_patch` process tool.
 //!
-//! Registers patch applier id `"direct"` and applies the internal line-based
+//! Applies the internal line-based
 //! patch format inside the workspace passed by the host.
 
 use std::path::{Path, PathBuf};
 
-use proteus_contracts::{
-    domain::{Patch, PatchResult},
-    process_module::{ModuleRegistry, PatchModule, PatchModuleObject, ProcessModuleError},
-};
+use proteus_contracts::process_module::{ModuleRegistry, ProcessModuleError};
 
+mod tool;
 mod transaction;
 
-struct DirectPatchModule;
-
-impl PatchModule for DirectPatchModule {
-    fn apply_json(&self, patch_json: String, cwd: String) -> Result<String, ProcessModuleError> {
-        let patch: Patch = match serde_json::from_str(patch_json.as_str()) {
-            Ok(patch) => patch,
-            Err(error) => {
-                return Err(ProcessModuleError::new(format!(
-                    "invalid Patch JSON: {error}"
-                )));
-            }
-        };
-
-        match apply_patch(&patch.content, Path::new(cwd.as_str())) {
-            Ok(result) => match serde_json::to_string(&result) {
-                Ok(json) => Ok(json),
-                Err(error) => Err(ProcessModuleError::new(format!(
-                    "failed to serialize PatchResult: {error}"
-                ))),
-            },
-            Err(error) => Err(ProcessModuleError::new(error)),
-        }
-    }
-}
-
-fn apply_patch(input: &str, workspace_root: &Path) -> Result<PatchResult, String> {
+fn apply_patch(input: &str, workspace_root: &Path) -> Result<String, String> {
     let operations = parse_patch(input)?;
     if operations.is_empty() {
         return Err("patch must contain at least one operation".to_owned());
@@ -45,7 +18,7 @@ fn apply_patch(input: &str, workspace_root: &Path) -> Result<PatchResult, String
 
     let summaries = transaction::apply_operations(operations, workspace_root)?;
 
-    Ok(PatchResult::new(true, summaries.join("; ")))
+    Ok(summaries.join("; "))
 }
 
 #[derive(Debug)]
@@ -278,8 +251,7 @@ fn parse_patch_path(path: &str) -> Result<PathBuf, String> {
 }
 
 pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
-    let applier: PatchModuleObject = Box::new(DirectPatchModule);
-    registry.register_patch(String::from("direct"), applier)
+    registry.register_tool(Box::new(tool::ApplyPatchTool))
 }
 
 #[cfg(test)]

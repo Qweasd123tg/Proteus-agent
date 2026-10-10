@@ -5,7 +5,7 @@
 # Настраиваемый Proteus prompt. Исходная адаптация опиралась на
 # codex-rs/protocol/src/prompts/base_instructions/default.md на commit
 # 2cf2a6a844f1fc2ddd489c8a67fa8bc2f59a6f3d; текущий текст сокращён и не является
-# pinned копией upstream. Он сохраняет Proteus tool/patch/permission contracts.
+# pinned копией upstream. Он сохраняет Proteus tool/permission contracts.
 # Runtime parity проверяется отдельно; в сравнении фиксируется и этот prompt.
 [[instructions]]
 kind = "System"
@@ -17,7 +17,6 @@ workflow = "coding.codex_loop"
 search = "rg"
 context = "codex_context"
 policy = "codex_policy"
-patch = "codex"
 compactor = "codex"
 
 [components.reference-workflow]
@@ -44,7 +43,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.reference-capabilities.exports.policy.codex_policy]
 
-[components.reference-capabilities.exports.patch.codex]
+[components.reference-capabilities.exports.tool.codex_patch]
 
 [components.reference-capabilities.exports.compactor.codex]
 
@@ -72,7 +71,7 @@ mode = "normal"
 [module_config.compactor.codex]
 # Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
 
-[module_config.patch.codex]
+[module_config.tool.codex_patch]
 reject_self_move = true
 
 [agent_control]

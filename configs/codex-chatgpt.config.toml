@@ -40,7 +40,6 @@ context = "codex_context"
 compactor = "codex"
 policy = "codex_policy"
 search = "rg"
-patch = "codex"
 hooks = ["hook.dcp"]
 
 [module_config.context.codex_context]
@@ -81,7 +80,7 @@ supports_json_schema = true
 supports_parallel_tool_calls = true
 supports_reasoning_config = true
 
-[module_config.patch.codex]
+[module_config.tool.codex_patch]
 reject_self_move = true
 
 [module_config.policy.codex_policy]

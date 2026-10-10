@@ -3,17 +3,14 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 
 use crate::{
-    contracts::{
-        MemoryStore, PatchApplier, ProvidedTool, SearchBackend, Tool, ToolProvider, ToolSource,
-    },
-    tools::{ApplyPatchTool, RememberFactTool, RequestUserInputTool, SearchTool},
+    contracts::{MemoryStore, ProvidedTool, SearchBackend, Tool, ToolProvider, ToolSource},
+    tools::{RememberFactTool, RequestUserInputTool, SearchTool},
 };
 
 #[derive(Clone)]
 pub struct BuiltinToolProvider {
     enabled: Vec<String>,
     search: Arc<dyn SearchBackend>,
-    patch: Arc<dyn PatchApplier>,
     memory: Arc<dyn MemoryStore>,
 }
 
@@ -21,13 +18,11 @@ impl BuiltinToolProvider {
     pub fn new(
         enabled: Vec<String>,
         search: Arc<dyn SearchBackend>,
-        patch: Arc<dyn PatchApplier>,
         memory: Arc<dyn MemoryStore>,
     ) -> Self {
         Self {
             enabled,
             search,
-            patch,
             memory,
         }
     }
@@ -38,7 +33,6 @@ impl BuiltinToolProvider {
 
     fn boxed_tool(&self, name: &str) -> Result<Arc<dyn Tool>> {
         match name {
-            "apply_patch" => Ok(Arc::new(ApplyPatchTool::new(self.patch.clone()))),
             "search" => Ok(Arc::new(SearchTool::new(self.search.clone()))),
             "remember_fact" => Ok(Arc::new(RememberFactTool::new(self.memory.clone()))),
             "request_user_input" => Ok(Arc::new(RequestUserInputTool::new("request_user_input"))),
@@ -55,7 +49,7 @@ impl BuiltinToolProvider {
 pub fn is_builtin_tool_name(name: &str) -> bool {
     matches!(
         name,
-        "apply_patch" | "search" | "remember_fact" | "request_user_input" | "AskUserQuestion"
+        "search" | "remember_fact" | "request_user_input" | "AskUserQuestion"
     )
 }
 

@@ -34,7 +34,6 @@ workflow = "coding.single_loop"
 search = "rg"
 context = "repo_aware"
 policy = "ask_write"
-patch = "direct"
 compactor = "codex"
 
 [components.reference-workflow]
@@ -57,7 +56,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.reference-capabilities.exports.policy.ask_write]
 
-[components.reference-capabilities.exports.patch.direct]
+[components.reference-capabilities.exports.tool.direct_patch]
 
 [components.reference-capabilities.exports.compactor.codex]
 
@@ -66,7 +65,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 [tools]
 # Full local coding toolset. File I/O and repo navigation come from
 # file-tools, git helpers come from git-tools, shell comes from shell-tool,
-# and search/apply_patch/remember_fact are core slot facade tools.
+# apply_patch comes from direct_patch; search/remember_fact are core slot facade tools.
 # Run ./install.sh before using this profile so the reference worker is on PATH.
 enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "request_user_input", "apply_patch", "write_file", "shell", "remember_fact"]
 

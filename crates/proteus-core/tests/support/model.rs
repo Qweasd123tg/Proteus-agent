@@ -36,6 +36,17 @@ pub fn config() -> AppConfig {
 }
 
 #[allow(dead_code)]
+pub fn add_direct_patch_tool(config: &mut AppConfig) {
+    config.components.insert(
+        "test-patch".into(),
+        serde_json::from_value(serde_json::json!({
+            "command": reference_module(), "exports": {"tool": {"direct_patch": {}}}
+        }))
+        .unwrap(),
+    );
+}
+
+#[allow(dead_code)]
 pub fn toml_component() -> String {
     format!(
         "\n[components.test-model]\ncommand = {}\n[components.test-model.exports.model.fake]\n[module_config.model.fake]\nimplementation = \"fake\"\n",

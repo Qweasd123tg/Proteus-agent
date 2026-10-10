@@ -7,8 +7,8 @@ mod config_schemas;
 use crate::{
     contracts::{
         AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
-        ExecutionContext, HistoryCompactor, MemoryStore, Model, PatchApplier, SearchBackend,
-        ToolExposure, ToolRegistry, UserInputTransport, Workflow,
+        ExecutionContext, HistoryCompactor, MemoryStore, Model, SearchBackend, ToolExposure,
+        ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, BoundModel, ModeAwarePolicy,
@@ -17,8 +17,8 @@ use crate::{
     },
     domain::{ModelRef, ReasoningConfig, SessionId, ThreadId, TurnId},
     stubs::{
-        DenyAllPolicy, EmptyContextBuilder, NoCompactor, NoMemory, NoWorkflow, NullPatchApplier,
-        NullSearch, UnfilteredToolExposure,
+        DenyAllPolicy, EmptyContextBuilder, NoCompactor, NoMemory, NoWorkflow, NullSearch,
+        UnfilteredToolExposure,
     },
 };
 
@@ -37,7 +37,6 @@ pub struct RuntimeRegistry {
     pub tools: ToolRegistry,
     pub(crate) process_tool_specs: Vec<(crate::contracts::ToolSource, crate::domain::ToolSpec)>,
     pub policy: Arc<dyn ApprovalPolicy>,
-    pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
     pub tool_exposure: Arc<dyn ToolExposure>,
     pub agent_control: Option<Arc<dyn AgentControl>>,
@@ -124,10 +123,6 @@ impl RuntimeRegistry {
                 Some(id) => catalog.build_context(id, &build_ctx)?,
                 None => Arc::new(EmptyContextBuilder),
             };
-        let patch: Arc<dyn PatchApplier> = match plan.module_id(crate::domain::ModuleKind::Patch) {
-            Some(id) => catalog.build_patch(id, &build_ctx)?,
-            None => Arc::new(NullPatchApplier),
-        };
         let compactor: Arc<dyn HistoryCompactor> =
             match plan.module_id(crate::domain::ModuleKind::Compactor) {
                 Some(id) => catalog.build_compactor(id, &build_ctx)?,
@@ -143,7 +138,6 @@ impl RuntimeRegistry {
         let surface = catalog.build_tools(
             &build_ctx,
             search.clone(),
-            patch.clone(),
             memory.clone(),
             &addons.skills,
             &addons.servers,
@@ -183,7 +177,6 @@ impl RuntimeRegistry {
             tools,
             process_tool_specs: surface.process_tool_specs,
             policy,
-            patch,
             compactor,
             tool_exposure,
             agent_control,

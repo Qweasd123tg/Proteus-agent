@@ -1,4 +1,4 @@
-The selected `direct` patch module uses this format for the `apply_patch` tool:
+The selected `direct_patch` tool module uses this format for `apply_patch`:
 `*** Begin Patch`, one or more file operations, and `*** End Patch`.
 Send the text in the function's string `patch` argument.
 

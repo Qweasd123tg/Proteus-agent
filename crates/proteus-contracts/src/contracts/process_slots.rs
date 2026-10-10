@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     contracts::ExecutionAttribution,
     domain::{
-        AgentTask, ContextBundle, ContextChunk, MemoryItem, MemoryQuery, Patch, PatchResult,
-        PolicyDecision, ToolCall, ToolResult, ToolSpec,
+        AgentTask, ContextBundle, ContextChunk, MemoryItem, MemoryQuery, PolicyDecision, ToolCall,
+        ToolResult, ToolSpec,
     },
 };
 
@@ -20,9 +20,6 @@ use super::ToolExposureInput;
 pub const PROCESS_MEMORY_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_MEMORY_REMEMBER_METHOD: &str = "remember";
 pub const PROCESS_MEMORY_RECALL_METHOD: &str = "recall";
-
-pub const PROCESS_PATCH_CONTRACT_VERSION: &str = "v1";
-pub const PROCESS_PATCH_APPLY_METHOD: &str = "apply";
 
 pub const PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION: &str = "v4";
 pub const PROCESS_TOOL_EXPOSURE_SELECT_METHOD: &str = "select";
@@ -70,13 +67,6 @@ pub struct ProcessMemoryRememberInput {
 pub struct ProcessMemoryRecallInput {
     pub query: MemoryQuery,
     pub attribution: ExecutionAttribution,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ProcessPatchInput {
-    pub patch: Patch,
-    pub cwd: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,7 +147,6 @@ pub type ProcessSkillCatalogResponse = ProcessModuleResponse<Option<crate::domai
 
 pub type ProcessMemoryRememberResponse = ProcessModuleResponse<()>;
 pub type ProcessMemoryRecallResponse = ProcessModuleResponse<Vec<MemoryItem>>;
-pub type ProcessPatchResponse = ProcessModuleResponse<PatchResult>;
 pub type ProcessToolExposureResponse = ProcessModuleResponse<super::ToolExposureOutput>;
 pub type ProcessPolicyResponse = ProcessModuleResponse<PolicyDecision>;
 pub type ProcessContextResponse = ProcessModuleResponse<ContextBundle>;

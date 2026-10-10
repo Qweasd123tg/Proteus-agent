@@ -131,7 +131,7 @@ Dev/test сохраняют line tables для backtraces без тяжёлой 
 | Skills/MCP/Agent Plugins management и автоподхват профиля | `proteus-core --lib app_server::http::tests::addons`, `app_server::profile_watch`, `core::agent_plugins`; загрузка и фильтрация — `skill-pack` |
 | Execution attribution и операции без chat identity | `proteus-core --test execution_boundary`, `core::runtime::tests::execution`, `core::bound_model`, `core::bound_tools` |
 | Один process с callback-связанными exports и journal/replay | `proteus-reference-module --test topology_journal` |
-| Patch transaction через заменяемые реализации | `proteus-reference-module --test patch_transaction` |
+| Patch transaction через заменяемые process tools | `proteus-reference-module --test patch_transaction`; runtime workdir/freeform — `module_swap::patch` |
 
 Новый callback проходит единую authority table и dispatcher всего slot.
 Проверяются разрешённый вызов и отказ из другого slot; привилегия конкретного

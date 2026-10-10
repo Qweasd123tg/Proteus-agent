@@ -141,7 +141,7 @@ composition(slot contract) = select_one | ordered_many
 Composition хранится в общей authority table и подтверждается отдельно для
 каждого export:
 
-- `select_one`: workflow, search, memory, context, policy, patch, compactor,
+- `select_one`: workflow, search, memory, context, policy, compactor,
   tool exposure;
 - `ordered_many`: tool, context provider, hook.
 
@@ -356,7 +356,6 @@ Rust host и модуль используют один
 | hook | v4 | `hook.invoke` | — |
 | search | v2 | `search` | — |
 | memory | v2 | `remember`, `recall` | — |
-| patch | v1 | `apply` | — |
 | tool exposure | v4 | `select` | — |
 | policy | v2 | `evaluate`, `evaluate_visibility` | — |
 | context provider | v2 | `provide` | — |
@@ -580,7 +579,7 @@ reference-workflow       workflow
 reference-context        context
         │ host.search/memory/providers
         ▼
-reference-capabilities   search, provider, policy, patch, compactor,
+reference-capabilities   search, provider, policy, compactor,
                          tool exposure, tools
 ```
 

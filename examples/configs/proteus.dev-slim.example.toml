@@ -15,7 +15,6 @@ workflow = "coding.single_loop"
 search = "rg"
 context = "repo_aware"
 policy = "ask_write"
-patch = "direct"
 compactor = "codex"
 
 [components.reference-workflow]
@@ -35,7 +34,7 @@ command = "proteus-reference-module"
 
 [components.reference-capabilities.exports.policy.ask_write]
 
-[components.reference-capabilities.exports.patch.direct]
+[components.reference-capabilities.exports.tool.direct_patch]
 
 [components.reference-capabilities.exports.compactor.codex]
 

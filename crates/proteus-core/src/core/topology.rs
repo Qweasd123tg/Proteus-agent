@@ -119,7 +119,7 @@ mod tests {
                 description: None,
             },
         ];
-        let tools = vec![ToolTopology {
+        let mut tools = vec![ToolTopology {
             name: "grep".to_owned(),
             description: "Search files".to_owned(),
             safety: "ReadOnly".to_owned(),
@@ -133,6 +133,20 @@ mod tests {
             registered: true,
             input_schema: json!({ "type": "object" }),
         }];
+        tools.push(ToolTopology {
+            name: "apply_patch".to_owned(),
+            description: "Apply a workspace patch".to_owned(),
+            safety: "WritesFiles".to_owned(),
+            source: "process:patch-tools/codex_patch".to_owned(),
+            owner: Some(crate::contracts::ProcessToolOwner {
+                component_id: "patch-tools".to_owned(),
+                module_id: "codex_patch".to_owned(),
+            }),
+            enabled: true,
+            runtime_managed: false,
+            registered: true,
+            input_schema: json!({ "type": "object" }),
+        });
 
         let edges = build_edges(&active_modules, &modules, &tools);
 
@@ -150,6 +164,13 @@ mod tests {
         ));
         assert!(has_edge(&edges, "tools", "tool:grep", "registered_tool"));
         assert!(has_edge(&edges, "config", "tool:grep", "enables"));
+        assert!(has_edge(
+            &edges,
+            "tools",
+            "tool:apply_patch",
+            "registered_tool"
+        ));
+        assert!(!edges.iter().any(|edge| edge.to == "slot:patch"));
         assert!(
             !edges
                 .iter()
@@ -188,7 +209,6 @@ mod tests {
                 "model",
                 "policy",
                 "search",
-                "patch",
                 "memory",
                 "hook",
             ]
@@ -212,7 +232,6 @@ mod tests {
                 .is_some_and(|slot| slot.required)
         };
         assert!(required("workflow"));
-        assert!(required("patch"));
         assert!(!required("search"));
         assert!(!slots.iter().any(|slot| slot.id == "tool"));
     }

@@ -44,6 +44,7 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let mut config = crate::test_model::config();
+    crate::test_model::add_direct_patch_tool(&mut config);
     config.tools.enabled = vec!["apply_patch".to_owned()];
     let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), Some(&config_path))
         .await

@@ -646,7 +646,10 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
         Some("coding.codex_loop")
     );
     assert_eq!(config.modules.context.as_deref(), Some("codex_context"));
-    assert_eq!(config.modules.patch.as_deref(), Some("codex"));
+    assert_eq!(
+        config.process_export_config("tool", "codex_patch").unwrap()["reject_self_move"],
+        true
+    );
     assert_eq!(config.modules.compactor.as_deref(), Some("codex"));
     assert_eq!(config.agent_control.roles.len(), 2);
     for role in &config.agent_control.roles {
@@ -898,8 +901,8 @@ fn module_list_output_contains_catalog_rows() {
 fn tool_list_output_contains_registered_tools() {
     let mut config = crate::test_model::config();
     config.tools.path = None;
-    // File I/O and shell are process-provided; use the remaining host tools
-    // to exercise render_tool_list without launching workers.
+    crate::test_model::add_direct_patch_tool(&mut config);
+    // Verify both process-provided patch and the remaining host facade source.
     config.tools.enabled = vec!["apply_patch".to_owned(), "search".to_owned()];
     let dir = tempfile::tempdir().expect("temp dir");
     let (plan, catalog) =
@@ -909,6 +912,7 @@ fn tool_list_output_contains_registered_tools() {
 
     assert!(rendered.contains("name"));
     assert!(rendered.contains("apply_patch"));
+    assert!(rendered.contains("process:test-patch/direct_patch"));
     assert!(rendered.contains("builtin:builtin"));
     assert!(rendered.contains("WritesFiles"));
     assert!(rendered.contains("search"));

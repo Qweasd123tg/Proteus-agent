@@ -38,14 +38,13 @@ impl Client {
             serde_json::from_value(json!({
                 "command": super::test_model::reference_module(),
                 "exports": {"workflow":{"coding.single_loop":{}},"context":{"simple":{}},
-                    "policy":{"ask_write":{}},"patch":{"direct":{}}}
+                    "policy":{"ask_write":{}},"tool":{"direct_patch":{}}}
             }))
             .unwrap(),
         );
         config.modules.workflow = Some("coding.single_loop".into());
         config.modules.context = Some("simple".into());
         config.modules.policy = Some("ask_write".into());
-        config.modules.patch = Some("direct".into());
         config.tools.enabled = vec!["apply_patch".into(), "request_user_input".into()];
         config
             .module_config

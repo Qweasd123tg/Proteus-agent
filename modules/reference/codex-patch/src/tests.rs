@@ -2,10 +2,7 @@ use std::fs;
 
 use super::CodexPatchConfig;
 
-fn apply_patch(
-    input: &str,
-    workspace: &std::path::Path,
-) -> Result<proteus_contracts::domain::PatchResult, String> {
+fn apply_patch(input: &str, workspace: &std::path::Path) -> Result<String, String> {
     super::apply_patch(input, workspace, &CodexPatchConfig::default())
 }
 
@@ -28,8 +25,7 @@ fn self_move_guard_rejects_normalized_alias_before_any_write() {
     assert_eq!(fs::read_to_string(dir.path().join("f")).unwrap(), "old\n");
     assert!(!dir.path().join("new").exists());
 
-    let result = apply_patch(&input, dir.path()).unwrap();
-    assert!(result.ok);
+    apply_patch(&input, dir.path()).unwrap();
     assert!(
         !dir.path().join("f").exists(),
         "unconfigured mode follows pinned Codex"
@@ -68,10 +64,7 @@ fn context_and_eof_select_the_last_matching_block_and_keep_a_newline() {
         fs::read_to_string(dir.path().join("f")).unwrap(),
         "fn first() {\nold\nfn last() {\nnew\n"
     );
-    assert_eq!(
-        result.summary,
-        "Success. Updated the following files:\nM f\n"
-    );
+    assert_eq!(result, "Success. Updated the following files:\nM f\n");
 
     let error = apply_patch(
         &patch("*** Update File: f\n@@\n-old\n+bad\n*** End of File"),
@@ -140,7 +133,7 @@ fn add_and_move_overwrite_destinations_and_summary_groups_operation_kinds() {
     fs::write(dir.path().join("delete"), "gone").unwrap();
     let result = apply_patch(&patch("*** Delete File: delete\n*** Update File: source\n*** Move to: dest\n@@\n-old\n+new\n*** Add File: added\n+replacement\n*** Add File: nested/empty"), dir.path()).unwrap();
     assert_eq!(
-        result.summary,
+        result,
         "Success. Updated the following files:\nA added\nA nested/empty\nM dest\nD delete\n"
     );
     assert_eq!(

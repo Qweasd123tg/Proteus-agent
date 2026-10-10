@@ -7,7 +7,7 @@ use serde_json::json;
 use tokio::process::Command;
 
 use crate::{
-    contracts::{PatchApplier, SearchBackend, Tool, ToolContext, ToolRegistry, ToolSource},
+    contracts::{SearchBackend, Tool, ToolContext, ToolRegistry, ToolSource},
     core::process_output::{
         DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, annotate_bounded_output, wait_with_bounded_output,
     },
@@ -15,7 +15,7 @@ use crate::{
     domain::{ToolCall, ToolResult, ToolSafety, ToolSpec},
 };
 
-use super::{ApplyPatchTool, SearchTool};
+use super::SearchTool;
 
 mod mcp;
 
@@ -122,7 +122,6 @@ pub fn register_configured_tools(
     mcp_servers: &[ConfiguredMcpServerConfig],
     cwd: &Path,
     search: Arc<dyn SearchBackend>,
-    patch: Arc<dyn PatchApplier>,
 ) -> Result<Vec<proteus_contracts::app_protocol::addons::AppMcpServerState>> {
     let states = register_discovered_mcp_tools(registry, mcp_servers, cwd)?;
 
@@ -131,7 +130,7 @@ pub fn register_configured_tools(
         let spec = configured_tool_spec(configured);
         match &configured.executor {
             ConfiguredToolExecutorConfig::Native { handler } => {
-                let inner = configured_native_handler(handler, search.clone(), patch.clone())?;
+                let inner = configured_native_handler(handler, search.clone())?;
                 registry.register_with_source(source, ConfiguredNativeTool::new(spec, inner))?;
             }
             ConfiguredToolExecutorConfig::Process {
@@ -228,15 +227,13 @@ fn effective_configured_tool_safety(configured: &ConfiguredToolConfig) -> ToolSa
 fn configured_native_handler(
     handler: &str,
     search: Arc<dyn SearchBackend>,
-    patch: Arc<dyn PatchApplier>,
 ) -> Result<Arc<dyn Tool>> {
     match handler {
-        "apply_patch" => Ok(Arc::new(ApplyPatchTool::new(patch))),
         "search" => Ok(Arc::new(SearchTool::new(search))),
         other => bail!(
             "unsupported native tool handler: '{other}'. File I/O (read_file, \
-             write_file, list_dir) and shell are now provided by the `file-tools` \
-             and `shell-tool` process modules — use tools.enabled with their tool names, \
+             write_file, list_dir), apply_patch and shell are provided by process \
+             tool modules — use tools.enabled with their tool names, \
              not configured.native.handler."
         ),
     }
@@ -245,7 +242,6 @@ fn configured_native_handler(
 fn native_handler_safety(handler: &str) -> ToolSafety {
     match handler {
         "search" => ToolSafety::ReadOnly,
-        "apply_patch" => ToolSafety::WritesFiles,
         _ => ToolSafety::Dangerous,
     }
 }

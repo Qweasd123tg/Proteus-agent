@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::{Result, bail};
 use proteus_contracts::process_module::{
     CompactorModuleObject, ContextBuilderModuleObject, ContextProviderModuleObject,
-    MemoryModuleObject, ModuleRegistry, PatchModuleObject, PolicyModuleObject, ProcessModuleError,
+    MemoryModuleObject, ModuleRegistry, PolicyModuleObject, ProcessModuleError,
     ProcessModuleResult, SearchModuleObject, ToolExposureModuleObject, ToolModuleObject,
     WorkflowModuleObject,
 };
@@ -16,7 +16,6 @@ pub struct CollectedModules {
     module_config: Value,
     pub tools: Vec<ToolModuleObject>,
     pub policies: HashMap<String, PolicyModuleObject>,
-    pub patches: HashMap<String, PatchModuleObject>,
     pub searches: HashMap<String, SearchModuleObject>,
     pub memories: HashMap<String, MemoryModuleObject>,
     pub context_providers: HashMap<String, ContextProviderModuleObject>,
@@ -61,8 +60,8 @@ impl CollectedModules {
             ("tool", "skill_tool") => skill_pack::register_modules,
             ("tool", "policy_tools") => policy_pack::register_modules,
             ("search", "rg") => rg_search::register_modules,
-            ("patch", "direct") => direct_patch::register_modules,
-            ("patch", "codex") => codex_patch::register_modules,
+            ("tool", "direct_patch") => direct_patch::register_modules,
+            ("tool", "codex_patch") => codex_patch::register_modules,
             ("memory", "jsonl") => memory_pack::register_modules,
             ("memory", "sqlite") => sqlite_memory::register_modules,
             ("context", "simple" | "repo_aware" | "codex_context") => {
@@ -94,7 +93,6 @@ impl CollectedModules {
             module_config,
             tools: Vec::new(),
             policies: HashMap::new(),
-            patches: HashMap::new(),
             searches: HashMap::new(),
             memories: HashMap::new(),
             context_providers: HashMap::new(),
@@ -148,14 +146,6 @@ impl ModuleRegistry for CollectedModules {
         policy: PolicyModuleObject,
     ) -> ProcessModuleResult<()> {
         insert(&mut self.policies, module_id, policy)
-    }
-
-    fn register_patch(
-        &mut self,
-        module_id: String,
-        applier: PatchModuleObject,
-    ) -> ProcessModuleResult<()> {
-        insert(&mut self.patches, module_id, applier)
     }
 
     fn register_search(

@@ -525,7 +525,7 @@ Exports одного component сохраняют shared process failure domain.
 composition(contract) = select_one | ordered_many
 ```
 
-`workflow`, `search`, `memory`, `context`, `policy`, `patch`,
+`workflow`, `search`, `memory`, `context`, `policy`,
 `compactor` и `tool_exposure` используют `select_one`.
 `tool`, `context_provider` и цепочка обработчиков `hook/v4` используют `ordered_many`.
 `modules.hooks` задаёт порядок обработчиков. Core определяет точки их вызова

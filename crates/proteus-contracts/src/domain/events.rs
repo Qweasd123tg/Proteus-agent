@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AgentOutput, AgentTask, CallId, EventId, ImageRef, MessageId, ModelRef, PatchResult, SessionId,
-    ThreadId, ToolCall, ToolResult, TurnId, new_event_id,
+    AgentOutput, AgentTask, CallId, EventId, ImageRef, MessageId, ModelRef, SessionId, ThreadId,
+    ToolCall, ToolResult, TurnId, new_event_id,
 };
 use crate::model_standard::{FinishReason, MessagePhase, TokenUsage};
 
@@ -288,9 +288,6 @@ pub enum Event {
     },
     ToolFinished {
         result: ToolResult,
-    },
-    PatchApplied {
-        result: PatchResult,
     },
     /// Дочерний агентский цикл запущен slot'ом `subagent`. События самого
     /// цикла эмитятся под `child_thread_id` — клиенты группируют по нему

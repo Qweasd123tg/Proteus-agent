@@ -5,15 +5,14 @@ use proteus_module_protocol::{ProcessExportBinding, current_process_contract_aut
 
 use crate::{
     contracts::{
-        ContextBuilder, HistoryCompactor, MemoryStore, PatchApplier, SearchBackend, ToolExposure,
-        Workflow,
+        ContextBuilder, HistoryCompactor, MemoryStore, SearchBackend, ToolExposure, Workflow,
     },
     core::AppConfig,
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{
         ProcessApprovalPolicy, ProcessComponentLauncher, ProcessContextBuilder,
         ProcessExportConfig, ProcessHistoryCompactor, ProcessMemoryStore, ProcessModel,
-        ProcessPatchApplier, ProcessSearchBackend, ProcessToolExposure, ProcessWorkflowAdapter,
+        ProcessSearchBackend, ProcessToolExposure, ProcessWorkflowAdapter,
     },
 };
 
@@ -145,15 +144,6 @@ impl ModuleCatalog {
                             ctx.cwd,
                         )?))
                     },
-                );
-            }
-            "patch" => {
-                ensure_process_id_is_free(self, slot::PATCH, &module_id)?;
-                self.register_module::<dyn PatchApplier>(
-                    slot::PATCH,
-                    &module_id,
-                    process_manifest(&export, ModuleKind::Patch, description),
-                    move |ctx| Ok(Arc::new(ProcessPatchApplier::new(export.clone(), ctx.cwd)?)),
                 );
             }
             "compactor" => {

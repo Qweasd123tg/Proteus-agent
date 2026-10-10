@@ -24,7 +24,6 @@ workflow = "coding.codex_loop"
 search = "rg"
 context = "codex_context"
 policy = "opencode_policy"
-patch = "direct"
 compactor = "codex"
 
 [components.reference-workflow]
@@ -47,7 +46,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.reference-capabilities.exports.policy.opencode_policy]
 
-[components.reference-capabilities.exports.patch.direct]
+[components.reference-capabilities.exports.tool.direct_patch]
 
 [components.reference-capabilities.exports.compactor.codex]
 

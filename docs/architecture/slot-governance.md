@@ -72,7 +72,7 @@ authority(module) = authority(slot, invocation_context)
    транспортная обёртка той же реализации не считаются.
 2. Поведение нельзя выразить через существующие `Tool`, `Workflow`,
    `ContextBuilder`, `ToolExposure`, `SearchBackend`, `MemoryStore`,
-   `ApprovalPolicy`, `PatchApplier`, `Compactor` или `Model`.
+   `ApprovalPolicy`, `Compactor` или `Model`.
 3. Ядро должно само вызывать это поведение в устойчивой точке жизненного цикла.
    Если достаточно инструмента, шага `Workflow` или `context_provider`, новый
    слот не нужен.
@@ -116,7 +116,7 @@ authority(module) = authority(slot, invocation_context)
 | Ищутся данные в проекте | `SearchBackend` или источник данных внутри `ContextBuilder` |
 | Долговременная память явно сохраняется или читается | `MemoryStore` вместе с `Tool` или `Workflow`; фоновая работа остаётся исследованием до появления двух реализаций |
 | Принимается решение `allow` / `ask` / `deny` | `ApprovalPolicy` и передача решения на подтверждение |
-| Применяется изменение файла | `PatchApplier` или `Tool` поверх него |
+| Применяется изменение файла | `Tool`, включая process tool `apply_patch`; алгоритм принадлежит implementation |
 | Меняется запрос к провайдеру, поток ответа или учёт использования | `Model` и его контракт обмена с процессом |
 | Показывается отладочная информация или меняется интерфейс | протокол сервера приложения или клиент UI/CLI |
 | Несколько независимых обработчиков последовательно меняют один DTO | Возможный контракт `ordered_many`; сначала нужны два одновременных применения и правила цепочки |
@@ -144,8 +144,8 @@ pack = конфигурация и профиль + набор реализац�
   context        = "repo_aware"
   search         = "path_fuzzy"
   policy         = "exec_rules"
-  patch          = "verified"
   tool_exposure  = "deferred_tools"
+  tool export    = "tool/verified_patch" (предоставляет apply_patch)
 ```
 
 Профиль может сочетать проверенные решения из других агентов. Каждая

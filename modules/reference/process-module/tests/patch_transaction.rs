@@ -1,15 +1,14 @@
-//! Real-process patch/v1 substitution with distinct direct/Codex algorithms.
+//! Real-process tool/v5 patch transactions with distinct direct/Codex algorithms.
 
 use std::{path::Path, time::Duration};
 
 use proteus_contracts::{
     contracts::{
-        ExecutionAttribution, PROCESS_PATCH_APPLY_METHOD, ProcessPatchInput, ProcessPatchResponse,
-        ToolContext,
+        ExecutionAttribution, PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD,
+        ProcessToolInvokeInput, ProcessToolInvokeResponse, ProcessToolListResponse,
     },
-    domain::{Patch, ToolCall, new_call_id, new_execution_id},
+    domain::{ToolCall, ToolSafety, new_call_id, new_execution_id},
 };
-use proteus_core::core::{AgentControlSurface, AppConfig, RuntimeRegistry};
 use proteus_module_protocol::{
     ProcessComponentBinding, ProcessExportBinding, current_process_contract_authority,
     v3::{ComponentBroker, ComponentBrokerOptions, InvocationTerminal},
@@ -20,11 +19,11 @@ use serde_json::json;
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 fn broker(workspace: &Path, module_id: &str) -> ComponentBroker {
-    let version = current_process_contract_authority("patch")
-        .expect("patch authority")
+    let version = current_process_contract_authority("tool")
+        .expect("tool authority")
         .contract_version;
-    let export =
-        ProcessExportBinding::new("patch", module_id, version, json!({})).expect("patch export");
+    let export = ProcessExportBinding::new("tool", module_id, version, json!({}))
+        .expect("patch tool export");
     let binding = ProcessComponentBinding::new("reference-patch", [export]).unwrap();
     ComponentBroker::connect(
         ProcessSpec::new(env!("CARGO_BIN_EXE_proteus-reference-module")).cwd(workspace),
@@ -42,11 +41,13 @@ async fn apply(
 ) -> InvocationTerminal {
     broker
         .invoke(
-            &proteus_contracts::contracts::ProcessComponentExportRef::new("patch", module_id),
-            PROCESS_PATCH_APPLY_METHOD,
-            serde_json::to_value(ProcessPatchInput {
-                patch: Patch::new(patch),
+            &proteus_contracts::contracts::ProcessComponentExportRef::new("tool", module_id),
+            PROCESS_TOOL_INVOKE_METHOD,
+            serde_json::to_value(ProcessToolInvokeInput {
+                call: ToolCall::new(new_call_id(), "apply_patch", json!({"patch": patch})),
                 cwd: cwd.to_path_buf(),
+                attribution: ExecutionAttribution::detached(new_execution_id()),
+                skills: Default::default(),
             })
             .unwrap(),
             TIMEOUT,
@@ -62,11 +63,11 @@ async fn process_patcher_rejects_invalid_full_plan_without_partial_changes() {
     let repeated = workspace.path().join("repeated.txt");
     std::fs::write(&sample, "old\n").unwrap();
     std::fs::write(&repeated, "old\nseparator\nold\n").unwrap();
-    let broker = broker(workspace.path(), "direct");
+    let broker = broker(workspace.path(), "direct_patch");
 
     let partial = apply(
         &broker,
-        "direct",
+        "direct_patch",
         workspace.path(),
         "*** Begin Patch\n*** Update File: sample.txt\n@@\n-old\n+changed\n*** Update File: missing.txt\n@@\n-old\n+changed\n*** End Patch",
     )
@@ -80,7 +81,7 @@ async fn process_patcher_rejects_invalid_full_plan_without_partial_changes() {
 
     let positional = apply(
         &broker,
-        "direct",
+        "direct_patch",
         workspace.path(),
         "*** Begin Patch\n*** Update File: repeated.txt\n@@ -3,1 +3,1 @@\n-old\n+changed\n*** End Patch",
     )
@@ -97,7 +98,7 @@ async fn process_patcher_rejects_invalid_full_plan_without_partial_changes() {
 
     let valid = apply(
         &broker,
-        "direct",
+        "direct_patch",
         workspace.path(),
         "*** Begin Patch\n*** Update File: sample.txt\n@@\n-old\n+valid\n*** End Patch",
     )
@@ -105,16 +106,39 @@ async fn process_patcher_rejects_invalid_full_plan_without_partial_changes() {
     let InvocationTerminal::Success(value) = valid else {
         panic!("worker did not recover after rejected patches: {valid:?}");
     };
-    let response: ProcessPatchResponse = serde_json::from_value(value).unwrap();
+    let response: ProcessToolInvokeResponse = serde_json::from_value(value).unwrap();
     assert!(response.result.ok);
     assert_eq!(std::fs::read_to_string(sample).unwrap(), "valid\n");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn patch_slot_substitution_keeps_contract_and_selects_module_semantics() {
-    for module_id in ["direct", "codex"] {
+async fn patch_tool_substitution_keeps_contract_and_selects_module_semantics() {
+    for module_id in ["direct_patch", "codex_patch"] {
         let workspace = tempfile::tempdir().unwrap();
         let broker = broker(workspace.path(), module_id);
+        let listed = broker
+            .invoke(
+                &proteus_contracts::contracts::ProcessComponentExportRef::new("tool", module_id),
+                PROCESS_TOOL_LIST_METHOD,
+                serde_json::Value::Null,
+                TIMEOUT,
+            )
+            .await
+            .unwrap();
+        let InvocationTerminal::Success(value) = listed else {
+            panic!("{module_id}: {listed:?}");
+        };
+        let response: ProcessToolListResponse = serde_json::from_value(value).unwrap();
+        assert_eq!(response.result.len(), 1);
+        let definition = &response.result[0];
+        assert!(definition.model_visible);
+        assert_eq!(definition.spec.name, "apply_patch");
+        assert_eq!(definition.spec.safety, ToolSafety::WritesFiles);
+        assert!(!definition.spec.supports_parallel_tool_calls);
+        assert_eq!(
+            definition.spec.metadata["approval"]["cache_scopes"],
+            json!(["workspace_write"])
+        );
         let target = workspace.path().join("f");
         let created = apply(
             &broker,
@@ -126,11 +150,11 @@ async fn patch_slot_substitution_keeps_contract_and_selects_module_semantics() {
         let InvocationTerminal::Success(value) = created else {
             panic!("{module_id}: {created:?}");
         };
-        let response: ProcessPatchResponse = serde_json::from_value(value).unwrap();
+        let response: ProcessToolInvokeResponse = serde_json::from_value(value).unwrap();
         assert!(response.result.ok);
         let anchored = apply(&broker, module_id, workspace.path(),
             "*** Begin Patch\n*** Update File: f\n@@ last\n-old\n+new\n*** End of File\n*** End Patch").await;
-        if module_id == "direct" {
+        if module_id == "direct_patch" {
             assert!(
                 matches!(anchored, InvocationTerminal::ModuleError(ref error) if error.message.contains("non-bare")),
                 "{anchored:?}"
@@ -169,122 +193,5 @@ async fn patch_slot_substitution_keeps_contract_and_selects_module_semantics() {
             "{recovered:?}"
         );
         assert!(!target.exists());
-    }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn patch_tool_workdir_is_invocation_scoped_across_process_modules() {
-    for module_id in ["direct", "codex"] {
-        let root = tempfile::tempdir().unwrap();
-        let workspace = root.path().join("workspace");
-        let subdir = workspace.join("subdir");
-        let outside = root.path().join("outside");
-        std::fs::create_dir_all(&subdir).unwrap();
-        std::fs::create_dir(&outside).unwrap();
-        std::fs::write(workspace.join("proof.txt"), "root sentinel\n").unwrap();
-        let mut config = AppConfig::default();
-        config.agent_control.surface = AgentControlSurface::None;
-        config.modules.patch = Some(module_id.to_owned());
-        config.tools.enabled = vec!["apply_patch".to_owned()];
-        config.components.insert(
-            "patch-fixture".into(),
-            serde_json::from_value(json!({
-                "command": env!("CARGO_BIN_EXE_proteus-reference-module"),
-                "exports": {"model": {"fake": {}}, "patch": {(module_id): {}}}
-            }))
-            .unwrap(),
-        );
-        config
-            .module_config
-            .entry("model".into())
-            .or_default()
-            .insert("fake".into(), json!({"implementation": "fake"}));
-        let registry = RuntimeRegistry::from_config(&config, workspace.clone()).unwrap();
-        let tool = registry.tools.get("apply_patch").unwrap();
-        let context = || {
-            ToolContext::new(
-                workspace.clone(),
-                ExecutionAttribution::detached(new_execution_id()),
-            )
-        };
-        let patch = "*** Begin Patch\n*** Add File: proof.txt\n+subdir content\n*** End Patch";
-        for workdir in [json!("subdir"), json!(subdir)] {
-            let result = tool
-                .invoke(
-                    &ToolCall::new(
-                        new_call_id(),
-                        "apply_patch",
-                        json!({"patch": patch, "workdir": workdir}),
-                    ),
-                    context(),
-                )
-                .await
-                .unwrap();
-            assert!(result.ok, "{module_id}: {result:?}");
-            assert_eq!(
-                std::fs::read_to_string(subdir.join("proof.txt")).unwrap(),
-                "subdir content\n"
-            );
-            assert_eq!(
-                std::fs::read_to_string(workspace.join("proof.txt")).unwrap(),
-                "root sentinel\n"
-            );
-            std::fs::remove_file(subdir.join("proof.txt")).unwrap();
-        }
-
-        // The slot contract also resolves relative cwd independently of host process cwd.
-        let result = registry.patch.apply(
-            Patch::new("*** Begin Patch\n*** Add File: contract.txt\n+relative slot cwd\n*** End Patch"),
-            Path::new("subdir"),
-        ).await.unwrap();
-        assert!(result.ok);
-        assert!(subdir.join("contract.txt").exists());
-        assert!(!workspace.join("contract.txt").exists());
-
-        let default = tool.invoke(
-            &ToolCall::new(new_call_id(), "apply_patch", json!({
-                "patch": "*** Begin Patch\n*** Add File: default.txt\n+workspace default\n*** End Patch"
-            })),
-            context(),
-        ).await.unwrap();
-        assert!(default.ok);
-        assert!(workspace.join("default.txt").exists());
-        assert!(!subdir.join("default.txt").exists());
-
-        let mut invalid = vec![
-            (json!("missing"), "resolve patch workdir"),
-            (json!("proof.txt"), "patch workdir must be a directory"),
-            (json!("../outside"), "patch workdir escapes workspace"),
-            (json!(outside), "patch workdir escapes workspace"),
-            (json!(42), "requires string arg 'workdir'"),
-        ];
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink(&outside, workspace.join("outside-link")).unwrap();
-            invalid.push((json!("outside-link"), "patch workdir escapes workspace"));
-        }
-        for (workdir, message) in invalid {
-            let error = tool
-                .invoke(
-                    &ToolCall::new(
-                        new_call_id(),
-                        "apply_patch",
-                        json!({"patch": patch, "workdir": workdir}),
-                    ),
-                    context(),
-                )
-                .await
-                .expect_err("invalid workdir must fail before patch invocation");
-            assert!(
-                error.to_string().contains(message),
-                "{module_id}: {error:#}"
-            );
-        }
-        assert!(!outside.join("proof.txt").exists());
-        assert!(!subdir.join("proof.txt").exists());
-        assert_eq!(
-            std::fs::read_to_string(workspace.join("proof.txt")).unwrap(),
-            "root sentinel\n"
-        );
     }
 }

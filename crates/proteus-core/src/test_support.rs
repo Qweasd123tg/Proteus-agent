@@ -12,8 +12,11 @@ use crate::{
 };
 
 pub(crate) fn module_catalog() -> ModuleCatalog {
-    let mut catalog =
-        ModuleCatalog::from_config(&crate::test_model::config()).expect("test model catalog");
+    module_catalog_for(&crate::test_model::config())
+}
+
+pub(crate) fn module_catalog_for(config: &crate::core::AppConfig) -> ModuleCatalog {
+    let mut catalog = ModuleCatalog::from_config(config).expect("test model catalog");
     catalog.register_test_context("simple", Arc::new(EmptyContextBuilder));
     catalog.register_test_workflow("coding.single_loop", Arc::new(TestToolLoopWorkflow));
     catalog.register_test_workflow("coding.plan_execute_review", Arc::new(TestToolLoopWorkflow));

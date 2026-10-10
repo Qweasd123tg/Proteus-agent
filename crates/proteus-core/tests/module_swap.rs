@@ -1,3 +1,5 @@
+#[path = "module_swap/patch.rs"]
+mod patch;
 #[path = "support/model.rs"]
 mod test_model;
 #[path = "module_swap/tool_exposure.rs"]

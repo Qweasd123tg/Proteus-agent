@@ -165,7 +165,6 @@ pub(super) fn should_forward_child_event(event: &Event) -> bool {
             | Event::ApprovalRequested { .. }
             | Event::ApprovalResolved { .. }
             | Event::ToolFinished { .. }
-            | Event::PatchApplied { .. }
             | Event::SubagentStarted { .. }
             | Event::SubagentFinished { .. }
             | Event::Error { .. }

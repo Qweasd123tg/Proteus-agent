@@ -13,19 +13,3 @@ impl Patch {
         }
     }
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct PatchResult {
-    pub ok: bool,
-    pub summary: String,
-}
-
-impl PatchResult {
-    pub fn new(ok: bool, summary: impl Into<String>) -> Self {
-        Self {
-            ok,
-            summary: summary.into(),
-        }
-    }
-}

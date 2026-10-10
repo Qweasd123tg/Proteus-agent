@@ -238,7 +238,7 @@ async fn send_run_cleanup_survives_dropped_waiter() {
 
 #[tokio::test]
 async fn route_send_approval_loop_completes_after_http_approval() {
-    let (state, server, _config_dir) = dogfood_loop_state().await;
+    let (state, server, config_dir) = dogfood_loop_state().await;
     let mut event_rx = server.subscribe();
     let session_dir = server.session_dir_path();
     let send_state = state.clone();
@@ -316,11 +316,15 @@ async fn route_send_approval_loop_completes_after_http_approval() {
                 .and_then(Value::as_str)
                 .expect("send output text");
             assert!(text.contains("Fake final answer after tool result"));
-            assert!(text.contains("patch applier is disabled"));
+            assert!(text.contains("smoke.txt"));
         }
         other => panic!("expected send response output, got {other:?}"),
     }
     assert!(server.pending_approvals.lock().await.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(config_dir.path().join("smoke.txt")).unwrap(),
+        "smoke\n"
+    );
     server.shutdown().await;
 }
 

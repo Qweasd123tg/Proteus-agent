@@ -7,11 +7,10 @@ use proteus_contracts::{
         ProcessComponentExportInitialize, ProcessComponentExportManifest,
         ProcessContextChunksResponse, ProcessContextInput, ProcessContextResponse,
         ProcessMemoryRecallInput, ProcessMemoryRecallResponse, ProcessMemoryRememberInput,
-        ProcessMemoryRememberResponse, ProcessPatchInput, ProcessPatchResponse,
-        ProcessPolicyEvaluateInput, ProcessPolicyResponse, ProcessPolicyVisibilityInput,
-        ProcessSearchResponse, ProcessToolExposureInput, ProcessToolExposureResponse,
-        ProcessToolInvokeInput, ProcessToolInvokeResponse, ProcessToolListResponse,
-        ProcessWorkflowInput, ProcessWorkflowResponse, WorkflowOutput,
+        ProcessMemoryRememberResponse, ProcessPolicyEvaluateInput, ProcessPolicyResponse,
+        ProcessPolicyVisibilityInput, ProcessSearchResponse, ProcessToolExposureInput,
+        ProcessToolExposureResponse, ProcessToolInvokeInput, ProcessToolInvokeResponse,
+        ProcessToolListResponse, ProcessWorkflowInput, ProcessWorkflowResponse, WorkflowOutput,
     },
     domain::ToolSpec,
     process_module::{
@@ -85,7 +84,6 @@ impl ModuleExport {
             "tool" => self.tool(method, params, bridge),
             "search" => self.search(params),
             "memory" => self.memory(method, params, bridge),
-            "patch" => self.patch(params),
             "policy" => self.policy(method, params),
             "tool_exposure" => self.tool_exposure(params),
             "context" => self.context(params, bridge),
@@ -244,22 +242,6 @@ impl ModuleExport {
             }
             _ => unreachable!(),
         }
-    }
-
-    fn patch(&self, params: Value) -> Result<Value> {
-        let input: ProcessPatchInput = decode(params)?;
-        let applier = self
-            .modules
-            .patches
-            .get(&self.binding.module_id)
-            .ok_or_else(|| anyhow!("patch module was not registered"))?;
-        let output = applier.apply_json(
-            serde_json::to_string(&input.patch)?,
-            input.cwd.to_string_lossy().into_owned(),
-        )?;
-        encode(ProcessPatchResponse::new(serde_json::from_str(
-            output.as_str(),
-        )?))
     }
 
     fn policy(&self, method: &str, params: Value) -> Result<Value> {
