@@ -142,7 +142,7 @@ pack = конфигурация и профиль + набор реализац�
 пример профиля
   workflow       = "coding.plan_execute_review"
   context        = "repo_aware"
-  search         = "path_fuzzy"
+  search tool    = "tool/path_fuzzy" (предоставляет search)
   policy         = "exec_rules"
   tool_exposure  = "deferred_tools"
   tool export    = "tool/verified_patch" (предоставляет apply_patch)

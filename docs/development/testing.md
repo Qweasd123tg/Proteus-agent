@@ -144,6 +144,7 @@ timeout/cancel. Producer, consumer и fixtures меняются вместе; с
 Conformance CLI без probe проверяет handshake, но не поведение slot.
 Команды для внешних Python examples находятся рядом с ними:
 [search](../../examples/modules/search-process/README.md),
+[tgrep search](../../examples/modules/tgrep-search/README.md),
 [compactor](../../examples/modules/compactor-process/README.md),
 [workflow](../../examples/modules/agent-worker/README.md).
 

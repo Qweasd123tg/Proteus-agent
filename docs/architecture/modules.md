@@ -458,6 +458,10 @@ pinned Codex. Синтаксис задают profile instructions; Core его 
 [UPSTREAM.md](../../modules/reference/codex-patch/UPSTREAM.md).
 Поиск и память также не имеют собственных слотов:
 
+`rg_search`, `jsonl_memory` и `sqlite_memory` ниже — имена implementations,
+не search/memory slots. Модель видит имена tools `search`, `remember_fact`
+и `recall_memory`; автоматический контекст использует отдельный provider export.
+
 - `tool/rg_search` предоставляет `search` (`ReadOnly`, parallel). Structured
   chunks находятся в `ToolResult.metadata.chunks`; алгоритм использует ripgrep.
   `starts_with` — строковый фильтр относительного пути, а не обязательный
@@ -473,6 +477,10 @@ pinned Codex. Синтаксис задают profile instructions; Core его 
   JSON metadata в SQLite — явная ошибка без подмены на `null`.
 - Эти exports не входят в `reference.tools`. Выбирайте одну реализацию для
   каждого имени tool; дубликаты отклоняются общей registry validation.
+
+Альтернативный внешний `tool/tgrep_search` предоставляет тот же `search`
+с индексируемым backend без context provider и изменений Core/DTO.
+[Подключение и проверки](../../examples/modules/tgrep-search/README.md).
 
 Одна implementation может также предоставить одноимённый `context_provider`
 export для автоматического чтения. Общий алгоритм/хранилище остаётся внутри

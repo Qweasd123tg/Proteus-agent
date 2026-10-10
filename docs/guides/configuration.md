@@ -662,11 +662,21 @@ tool:             reference.tools и узкие selectors, direct_patch, codex_p
 Это reference/test inventory, не обязательный пакет. Любой другой executable,
 прошедший тот же contract, настраивается тем же способом.
 
+Отдельных selections `modules.search`, `modules.memory` и `modules.patch` нет.
+Имена `rg_search`, `jsonl_memory`, `sqlite_memory`, `direct_patch` и `codex_patch`
+обозначают implementations общих tool/provider contracts. Имя export и имя tool
+различаются: например, `tool/rg_search` предоставляет model-visible `search`.
+
 `tool/rg_search` предоставляет `search`, а `tool/jsonl_memory` либо
 `tool/sqlite_memory` — `remember_fact` и `recall_memory`. Эти exports не входят
 в `reference.tools`; нужные имена включаются через `tools.enabled`. Подключайте
 одну реализацию для каждого имени tool. `/remember` требует enabled
 `remember_fact` и проходит тот же policy/approval path.
+
+Для индексируемого `search` есть внешний
+[пример на tgrep](../../examples/modules/tgrep-search/README.md) и
+[самостоятельный профиль](../../examples/configs/proteus.tgrep-search.example.toml).
+Он заменяет tool implementation; context provider отдельно не добавляется.
 
 Одноимённые `context_provider` exports добавляют результаты автоматического
 чтения; они не зависят от `tools.enabled` и не вызывают tools. Каждый export

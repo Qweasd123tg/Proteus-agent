@@ -140,8 +140,9 @@ search_provider = "python_rg"
 
 `components` содержит команды запуска, `exports` — доступные реализации
 слотов. `modules` выбирает single-selection реализацию, `tools.enabled` — tools,
-а настройки context — providers для автоматического чтения. Поиск и память
-не требуют собственных слотов. Внутренние настройки
+а настройки context — providers для автоматического чтения. Отдельных слотов
+поиска, памяти и patch нет: явные действия — tools, автоматическое чтение —
+context providers. Внутренние настройки
 алгоритма задаются в `module_config.<slot>.<module_id>`.
 
 Один процесс может предоставлять несколько слотов. Их вызовы управляются
@@ -150,7 +151,9 @@ Core, а разрешённые операции определяются кон
 
 Готовый [пример поиска на Python](examples/modules/search-process/README.md)
 и [полный профиль](examples/configs/proteus.process-search.example.toml)
-показывают подключение внешней программы. Контракты и порядок добавления
+показывают подключение внешней программы. [Поиск на tgrep](examples/modules/tgrep-search/README.md)
+заменяет только tool `search`, сохраняя существующие контракты.
+Контракты и порядок добавления
 модуля описаны в [modules.md](docs/architecture/modules.md).
 
 ## Полезные Команды

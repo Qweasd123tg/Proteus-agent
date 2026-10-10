@@ -12,8 +12,8 @@
 Core -> Contract -> Module Implementation
 ```
 
-`proteus-core` знает, когда вызвать поиск, проверку разрешений или выполнение
-задачи, но не знает алгоритм конкретного модуля. Интерфейсы и форматы данных
+`proteus-core` исполняет tools, context providers, проверку разрешений и workflow,
+но не знает алгоритм конкретного модуля. Интерфейсы и форматы данных
 принадлежат `proteus-contracts`; модули обмениваются сообщениями с Core по
 протоколу v3. Версии контрактов слотов и разрешённые операции приведены в таблице
 [process-module-architecture.md](process-module-architecture.md).
@@ -282,7 +282,7 @@ cancel, invalid response или смерть process классифицирую�
 | Turn | `SessionSteering` создаёт id; `AgentRuntime` открывает/settle-ит | Одна conversational operation; follow-up получает новый id | Chat/application lifecycle, history attribution и canonical settlement |
 | Workflow | Selected `Workflow` implementation | Один standalone или conversational вызов | Controller policy: ReAct/single loop, Codex loop, plan/execute/review или другой algorithm; context задаётся `WorkflowInvocationContext` |
 | `ExecutionScope` | private `AgentRuntime` admission для Turn и typed top-level operations; standalone caller создаёт scope своего вызова | Один logical workload; child cancellation view сохраняет id | Distinct `ExecutionId` и cancellation без chat/process identity |
-| `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Binding для generic handles: model/search/memory/tools/policy/approval/grants |
+| `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Binding для generic handles: model/tools/policy/approval/grants; поиск и память доступны через tools |
 | `WorkflowInvocationContext` | `RuntimeRegistry` создаёт `Execution` для standalone или оборачивает conversational context в `Agent` | Один Workflow invocation | Выбор доступных execution services и дополнительного conversation state |
 | `AgentWorkflowContext` | `RuntimeRegistry` оборачивает уже bound `ExecutionContext`; `AgentRuntime` добавляет live Turn state | Один conversational Workflow invocation | Chat/application identity, context building, compaction, steering/presentation и один wrapped `ExecutionContext` |
 | `RuntimeSnapshot` | `RuntimeServices` | Immutable assembly/config view, удерживаемый всем ходом | Coherent `ModuleEpoch + AssemblyPlan + RuntimeRegistry + config snapshot`; не computation checkpoint |
@@ -498,7 +498,8 @@ Exports одного component сохраняют shared process failure domain.
 Агент собирается из модулей, подключённых к слотам:
 
 - **Слот** задаёт контракт поведения: данные запроса и ответа, доступные
-  операции, правила отмены и ошибок. Например, `search` отвечает за поиск.
+  операции, правила отмены и ошибок. Например, `tool` задаёт выполнение
+  инструментов, среди которых `search`, `remember_fact` и `apply_patch`.
 - **Модуль** — отдельная программа с конкретным алгоритмом. Она работает
   в своём процессе и может реализовать один или несколько слотов.
 - **Профиль** — конфигурация, которая выбирает реализации слотов, модель,
@@ -513,6 +514,11 @@ Exports одного component сохраняют shared process failure domain.
 Слово «возможность» описывает нужное поведение, например поиск или обращение
 к модели. Оно само по себе не означает новый слот, службу или набор прав.
 Поставляемые примеры модулей имеют те же права, что и внешние реализации.
+
+Отдельных слотов `search`, `memory` и `patch` нет. `rg_search` — имя реализации
+tool `search`; та же программа может предоставить read-only `context_provider`
+для автоматического наполнения контекста. Context builder вызывает provider
+через host, а не tool. Выбор search tool не включает provider автоматически.
 
 ## Сколько Реализаций Подключается К Слоту
 
@@ -569,10 +575,7 @@ Module config остаётся opaque JSON object для реализации. C
 
 Отсутствие selection — состояние wiring, а не скрытая module identity:
 
-- search возвращает пустой результат;
-- memory ничего не хранит;
 - context пуст;
-- patch запрещён;
 - compaction не меняет history;
 - policy закрывает исполнение;
 - workflow не может выполнить turn;
@@ -581,6 +584,12 @@ Module config остаётся opaque JSON object для реализации. C
 Эти structural objects не входят в catalog, не отображаются как modules и не
 могут получить module-owned config. Если config явно выбрал id, любая проблема
 с ним является ошибкой; fallback к structural absence запрещён.
+
+Tools и context providers подключаются отдельными exports. Если search,
+memory или patch tool не подключён и не включён, его нет в ToolRegistry;
+вызов отсутствующего tool завершается ошибкой. Если автоматическое чтение
+не выбрано через `search_provider`/`memory_provider`, context builder его
+не выполняет. Скрытых пустых реализаций поиска, памяти или patch нет.
 
 Agent control не является slot-ом: пустой top-level `agent_control.roles`
 означает отсутствие service и model-facing facade, а configured service

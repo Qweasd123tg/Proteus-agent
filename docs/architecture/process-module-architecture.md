@@ -46,8 +46,8 @@ authority(export invocation) = authority(slot, invocation_context)
 ```
 
 `component_id`, `module_id`, binary, язык и каталог исходников не участвуют в
-решении о доступных `host.*` callbacks. Компонент с exports `search/rg` и
-`workflow/coding.loop` не получает объединение search- и workflow-прав:
+решении о доступных `host.*` callbacks. Компонент с exports `tool/rg_search` и
+`workflow/coding.single_loop` не получает объединение tool- и workflow-прав:
 каждый request обслуживается с authority только активного export.
 
 Component — deployment/lifecycle boundary, а не новый привилегированный slot.

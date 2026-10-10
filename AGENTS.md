@@ -30,6 +30,13 @@ Core -> Contract -> Module Implementation
 
 Core не должен знать детали конкретного поиска, памяти, модели, tools, policy или patch algorithm. Новая функциональность должна проходить через существующий slot или через явно добавленный contract.
 
+Отдельные слоты `search`, `memory` и `patch` удалены. Явный поиск,
+чтение/запись памяти и применение patch реализуются через `tool/v5`;
+автоматическое чтение поиска/памяти — через `context_provider/v4`.
+`rg_search`, `jsonl_memory`, `sqlite_memory`, `direct_patch` и `codex_patch` —
+имена implementations этих общих контрактов, а не отдельные слоты.
+Context builder не вызывает tool: provider — самостоятельный read-only export.
+
 Текущие слоты остаются рабочей основой. При изменении общей границы исполнения
 не добавляйте обязательные conversation identity, history или model call:
 они нужны только операциям, чей контракт явно требует разговорного контекста
