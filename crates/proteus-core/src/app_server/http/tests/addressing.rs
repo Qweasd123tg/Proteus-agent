@@ -393,9 +393,11 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
         )
         .await,
     );
-    assert_eq!(created["cwd"], workspace_b.path().to_str().unwrap());
-    assert_eq!(created["permission_mode"], "Auto");
     let created_dir = PathBuf::from(created["session_dir"].as_str().unwrap());
+    let created_server = state.server_for_session_dir(&created_dir).await.unwrap();
+    let config = read_json_at(&state, &scoped_path("/config", &created_server)).await;
+    assert_eq!(config["cwd"], workspace_b.path().to_str().unwrap());
+    assert_eq!(config["permission_mode"], "Auto");
     assert!(created_dir.starts_with(config_dir.path()));
     assert!(
         command_value(

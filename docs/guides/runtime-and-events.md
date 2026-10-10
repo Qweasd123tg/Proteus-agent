@@ -836,11 +836,12 @@ store; stdio остаётся привязанным к одной session пр�
   профиля добавляет заменяемое состояние в историю; настройки отображения
   хранятся в клиенте и не имеют backend endpoint;
 - `POST /resume` - обеспечивает наличие live runtime указанного в body
-  `session_dir`, возвращая его summary. Не меняет выбор других клиентов и
-  не отменяет running turns;
+  `session_dir`, возвращая `SessionOpened {session_dir, activity}`. Не меняет
+  выбор других клиентов и не отменяет running turns;
 - `POST /new-session` - регистрирует новый пустой runtime и возвращает его
-  summary. Optional `source_session_dir` в body явно выбирает live session,
-  от которой берутся workspace и конфигурация; приложение передаёт свой выбранный чат.
+  `SessionOpened {session_dir, activity}`. Optional `source_session_dir` в body
+  явно выбирает live session, от которой берутся workspace и конфигурация;
+  приложение передаёт свой выбранный чат.
   Без этого поля используется стартовая конфигурация и workspace сервера.
   Создание не меняет выбор других окон и не отменяет фоновые turns;
 - `POST /delete-session` - удаляет указанную durable session и отменяет только
@@ -850,6 +851,10 @@ store; stdio остаётся привязанным к одной session пр�
 
 `/health`, `/bootstrap`, `/sessions`, `/new-session` и `/shutdown` относятся
 к серверу. `/resume` и `/delete-session` адресуют session через JSON body.
+
+Ответ `SessionOpened` не запрашивает каталог моделей. Конфигурация и каталог
+моделей читаются отдельно через `/config`; ожидание удалённого провайдера
+не задерживает открытие сессии и доступ к `/config/builder`.
 
 `/sessions` и `/sessions/current` сериализуют единый contract DTO
 `AppSessionSummary`.

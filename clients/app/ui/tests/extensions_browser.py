@@ -35,7 +35,7 @@ from scroll_jitter_checks import run as check_scroll_jitter
 from planning_checks import run as check_planning
 from usage_checks import run as check_usage
 from architecture_checks import run as check_architecture
-from agent_settings_checks import run as check_agent_settings
+from agent_settings_checks import run as check_agent_settings, check_startup as check_agent_settings_startup
 from notifications_checks import run as check_notifications
 from turn_issue_checks import run as check_turn_issue
 from chat_search_checks import run as check_chat_search
@@ -206,6 +206,11 @@ class Assets(SimpleHTTPRequestHandler):
             assert self.headers.get('Authorization') == 'Bearer fixture-access'
             assert self.headers.get('ChatGPT-Account-Id') == 'fixture-account'
             if self.path.startswith('/models?'):
+                catalog_gate = getattr(self.server, 'catalog_gate', None)
+                if catalog_gate is not None:
+                    self.server.catalog_started.set()
+                    if not catalog_gate.wait(timeout=60):
+                        raise AssertionError('Startup fixture held the model catalog too long')
                 data = {"models": [{"slug": "fixture-model", "display_name": "Fixture", "visibility": "list", "priority": 0, "supported_reasoning_levels": []}, {"slug":"fixture-model-2","display_name":"Fixture 2","visibility":"list","priority":1,"supported_reasoning_levels":[{"effort":"low","description":"Low"},{"effort":"high","description":"High"}]}]}
             else:
                 data = {"plan_type": "plus", "rate_limit": {"allowed": True, "limit_reached": False,
@@ -297,6 +302,9 @@ def main():
         server.model_requests = 0
         server.model_gate = threading.Event()
         server.model_gate.set()
+        server.catalog_gate = threading.Event()
+        server.catalog_gate.set()
+        server.catalog_started = threading.Event()
         server.stream_gate = threading.Event()
         server.stream_gate.set()
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -430,7 +438,7 @@ state_dir = ''' + json.dumps(str(folder / 'dcp-state')) + '\n')
                     check_approvals(command,js,wait_for,folder)
                     return
                 if '--agent-settings-only' in sys.argv:
-                    command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
+                    check_agent_settings_startup(command, js, wait_for, server, web, origin)
                     wait_for(loaded, 'Client missing')
                     def capture(name):
                         time.sleep(0.5)  # let the page transition settle

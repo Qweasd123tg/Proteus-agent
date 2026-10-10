@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
-use proteus_contracts::app_protocol::AppBootstrap;
+use proteus_contracts::app_protocol::{AppBootstrap, http::SessionOpened};
 use serde_json::{Value, json};
 
 use super::{commands::command_response, state::HttpAppState};
@@ -54,7 +54,7 @@ pub(super) async fn execute_new_session(
         let next = AgentAppServer::launch(config, cwd, config_path.as_deref()).await?;
         next.start_session().await?;
         state.remember_server(next.clone()).await;
-        config_summary_with_activity(state, &next).await
+        session_opened(state, &next).await
     }
     .await;
     command_response(id, result.map(Some))
@@ -115,7 +115,7 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
     let _lifecycle = state.session_lifecycle.lock().await;
     let session_dir = canonicalize_session_dir_path(session_dir)?;
     if let Some(existing) = state.server_for_session_dir(&session_dir).await {
-        return config_summary_with_activity(state, &existing).await;
+        return session_opened(state, &existing).await;
     }
     let launch = &state.launch;
     let next = AgentAppServer::launch_resumed(
@@ -126,7 +126,17 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
     )
     .await?;
     state.remember_server(next.clone()).await;
-    config_summary_with_activity(state, &next).await
+    session_opened(state, &next).await
+}
+
+async fn session_opened(state: &HttpAppState, server: &AppServerHandle) -> Result<Value> {
+    let session_dir = server
+        .session_dir_path()
+        .ok_or_else(|| anyhow!("live session has no session directory"))?;
+    Ok(serde_json::to_value(SessionOpened {
+        session_dir,
+        activity: state.activity_for_server(server).await,
+    })?)
 }
 
 pub(super) async fn config_summary_with_activity(

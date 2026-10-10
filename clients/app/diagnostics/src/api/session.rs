@@ -2,7 +2,7 @@ use super::*;
 use proteus_app_common::session_selection::select_startup_session;
 use proteus_contracts::app_protocol::{
     AppBootstrap as BootstrapResponse, AppSessionSummary,
-    http::{NewSessionRequest, ResumeSessionRequest},
+    http::{NewSessionRequest, ResumeSessionRequest, SessionOpened},
 };
 
 pub(crate) async fn initialize_selected_session() -> Result<String, String> {
@@ -16,7 +16,7 @@ pub(crate) async fn initialize_selected_session() -> Result<String, String> {
         &catalog,
     );
     let id = format!("inspector-{}", js_sys::Date::now() as u64);
-    let summary: crate::types::ConfigSummary = match requested {
+    let opened: SessionOpened = match requested {
         Some(session_dir) => {
             let response = post_json::<_, StdioOutput>(
                 "/resume",
@@ -40,9 +40,7 @@ pub(crate) async fn initialize_selected_session() -> Result<String, String> {
             command_output(response)?
         }
     };
-    let session_dir = summary
-        .session_dir
-        .ok_or_else(|| "server did not return the selected session_dir".to_owned())?;
+    let session_dir = opened.session_dir.to_string_lossy().into_owned();
     persist_selected_session(&session_dir)?;
     SELECTED_SESSION_DIR.with(|stored| *stored.borrow_mut() = Some(session_dir.clone()));
     Ok(session_dir)
@@ -100,7 +98,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn session_lifecycle_response_unwraps_config_payload() {
+    fn session_lifecycle_response_unwraps_opened_session() {
         let bootstrap: BootstrapResponse = serde_json::from_value(serde_json::json!({
             "session_dir": "/tmp/session-a",
             "cwd": "/tmp/workspace"
@@ -147,13 +145,19 @@ mod tests {
             "type": "response",
             "id": "inspector-1",
             "ok": true,
-            "output": { "session_dir": "/tmp/session-a" },
+            "output": {
+                "session_dir": "/tmp/session-a",
+                "activity": {"status": "idle", "running_runs": 0, "running_run_ids": [],
+                    "pending_approvals": 0, "pending_user_inputs": 0}
+            },
             "error": null
         }))
         .unwrap();
         assert_eq!(
-            command_output::<serde_json::Value>(response).unwrap()["session_dir"],
-            "/tmp/session-a"
+            command_output::<SessionOpened>(response)
+                .unwrap()
+                .session_dir,
+            std::path::Path::new("/tmp/session-a")
         );
     }
 

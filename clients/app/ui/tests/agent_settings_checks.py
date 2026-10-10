@@ -1,6 +1,34 @@
 """Agent settings: per-slot pages share one draft and save the real profile."""
 import json
+import time
 import tomllib
+from urllib.parse import urlencode
+
+
+def check_startup(command, js, wait_for, server, web, origin):
+    for fresh in [False, True]:
+        server.catalog_gate.clear()
+        server.catalog_started.clear()
+        try:
+            params = {'server': origin, 'token': 'extension-smoke'}
+            if fresh:
+                params['startup_fixture'] = 'fresh'
+            command('/url', {'url': web + '/foundation.html?' + urlencode(params)})
+            wait_for(server.catalog_started.is_set, 'Startup did not request the model catalog')
+            started = time.monotonic()
+            js("document.querySelector('.settings-link').click()")
+            wait_for(lambda: js("return !!document.querySelector('[data-settings-section=agent-workflow]')"), 'Settings navigation missing during catalog fetch')
+            js("document.querySelector('[data-settings-section=agent-workflow]').click()")
+            wait_for(lambda: js("return !!document.querySelector('[data-module-page=agent-workflow] [data-agent-module=\"coding.single_loop\"] input:checked')"), 'Profile waited for the remote model catalog')
+            assert time.monotonic() - started < 10, 'Profile only opened after the catalog timeout'
+            assert not server.catalog_gate.is_set(), 'Catalog was released before the profile loaded'
+            assert js("return document.querySelector('[data-module-page=agent-workflow] [data-agent-save]').disabled"), 'Cold settings load edited the profile'
+        finally:
+            server.catalog_gate.set()
+    # Leave the existing edit/save checks on their usual settings landing page.
+    js("document.querySelector('[data-settings-section=appearance]').click();document.querySelector('.settings-back').click()")
+    wait_for(lambda: js("const b=document.querySelector('.settings-link');return !b.classList.contains('active')&&b.getBoundingClientRect().width>20"), 'Startup check did not restore the chat')
+    print('PASS: first profile read after resume/new-session completes while the remote model catalog is blocked', flush=True)
 
 
 def run(command, js, wait_for, config, capture):

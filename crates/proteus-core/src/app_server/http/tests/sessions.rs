@@ -39,6 +39,8 @@ async fn route_new_session_registers_an_independently_addressable_session() {
     else {
         panic!("expected successful new-session response");
     };
+    let _: proteus_contracts::app_protocol::http::SessionOpened =
+        serde_json::from_value(summary.clone()).expect("lifecycle acknowledgement");
     let next_session_dir = summary
         .get("session_dir")
         .and_then(Value::as_str)
@@ -331,6 +333,8 @@ async fn route_resume_reuses_live_session_without_persisted_directory() {
     else {
         panic!("expected successful resume response");
     };
+    let _: proteus_contracts::app_protocol::http::SessionOpened =
+        serde_json::from_value(summary.clone()).expect("lifecycle acknowledgement");
     assert_eq!(
         summary.get("session_dir").and_then(Value::as_str),
         Some(original_session_dir.as_str())

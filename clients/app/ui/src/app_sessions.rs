@@ -3,6 +3,7 @@ mod bootstrap;
 use crate::events::EventConnection;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use proteus_contracts::app_protocol::http::SessionOpened;
 use web_sys::window;
 
 use crate::api::{clear_selected_session_dir, persist_selected_session_dir, post_json};
@@ -250,12 +251,12 @@ impl AppSessionActions {
             }
             let result = match result {
                 Ok(StdioOutput::Response {
-                    ok: true, output, ..
-                }) => Ok(output
-                    .as_ref()
-                    .and_then(|value| value.get("activity"))
-                    .cloned()
-                    .and_then(|value| serde_json::from_value::<SessionActivityInfo>(value).ok())),
+                    ok: true,
+                    output: Some(output),
+                    ..
+                }) => serde_json::from_value::<SessionOpened>(output)
+                    .map(|opened| opened.activity)
+                    .map_err(|error| format!("неверный ответ resume: {error}")),
                 Ok(StdioOutput::Response { error, .. }) => {
                     Err(error.unwrap_or_else(|| "сервер отклонил открытие сессии".to_owned()))
                 }
@@ -269,14 +270,12 @@ impl AppSessionActions {
                     // the previous intent until resume succeeds so a failed
                     // selection can restore the existing reading mode.
                     self.set_stick_to_bottom.set(true);
-                    if let Some(activity) = activity {
-                        apply_active_session_activity(
-                            Some(&activity),
-                            self.set_is_sending,
-                            self.set_active_run_id,
-                            self.set_agent_status,
-                        );
-                    }
+                    apply_active_session_activity(
+                        Some(&activity),
+                        self.set_is_sending,
+                        self.set_active_run_id,
+                        self.set_agent_status,
+                    );
                     self.set_sidebar_sessions_status
                         .set("сессия открыта".to_owned());
                     reconnect_event_stream(self.event_source, self.event_stream);

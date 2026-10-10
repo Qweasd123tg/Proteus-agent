@@ -112,6 +112,14 @@ pub struct NewSessionRequest {
     pub source_session_dir: Option<PathBuf>,
 }
 
+/// Lifecycle acknowledgement; model metadata is read separately through `/config`.
+#[derive(Debug, serde::Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionOpened {
+    pub session_dir: PathBuf,
+    pub activity: super::AppSessionActivity,
+}
+
 #[derive(Debug, serde::Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeleteSessionRequest {

@@ -1,5 +1,6 @@
 use leptos::{prelude::*, task::spawn_local};
 use proteus_app_common::session_selection::select_startup_session;
+use proteus_contracts::app_protocol::http::SessionOpened;
 use serde_json::json;
 
 use super::AppSessionActions;
@@ -105,7 +106,13 @@ async fn resume_session(session_dir: String) -> Result<String, String> {
     )
     .await
     {
-        Ok(StdioOutput::Response { ok: true, .. }) => Ok(session_dir),
+        Ok(StdioOutput::Response {
+            ok: true,
+            output: Some(output),
+            ..
+        }) => serde_json::from_value::<SessionOpened>(output)
+            .map(|opened| opened.session_dir.to_string_lossy().into_owned())
+            .map_err(|error| format!("неверный ответ resume: {error}")),
         Ok(StdioOutput::Response { error, .. }) => {
             Err(error.unwrap_or_else(|| "не удалось открыть выбранную сессию".to_owned()))
         }
@@ -124,11 +131,9 @@ pub(super) async fn create_session(source_session_dir: Option<String>) -> Result
             ok: true,
             output: Some(output),
             ..
-        }) => output
-            .get("session_dir")
-            .and_then(serde_json::Value::as_str)
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| "new-session response has no session_dir".to_owned()),
+        }) => serde_json::from_value::<SessionOpened>(output)
+            .map(|opened| opened.session_dir.to_string_lossy().into_owned())
+            .map_err(|error| format!("неверный ответ new-session: {error}")),
         Ok(StdioOutput::Response { error, .. }) => {
             Err(error.unwrap_or_else(|| "не удалось создать сессию".to_owned()))
         }

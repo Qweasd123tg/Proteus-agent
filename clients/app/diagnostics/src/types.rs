@@ -1,9 +1,6 @@
-pub(crate) use proteus_contracts::app_protocol::{
-    config::*,
-    topology::{
-        ModuleSourceTopology as TopologyModuleSource, ModuleTopology as TopologyModule,
-        SlotTopology as TopologySlot, TopologySnapshot,
-    },
+pub(crate) use proteus_contracts::app_protocol::topology::{
+    ModuleSourceTopology as TopologyModuleSource, ModuleTopology as TopologyModule,
+    SlotTopology as TopologySlot, TopologySnapshot,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
