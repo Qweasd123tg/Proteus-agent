@@ -1,6 +1,10 @@
 use leptos::prelude::*;
 
-use crate::{context_map::ContextMapView, ui_utils::short_id, usage_details::UsageDetailsView};
+use crate::{
+    context_map::ContextMapView,
+    ui_utils::{counted, short_id},
+    usage_details::UsageDetailsView,
+};
 use leptos::task::spawn_local;
 use proteus_contracts::app_protocol::{AppBootstrap, AppSessionSummary as SessionSummary};
 mod location;
@@ -67,7 +71,7 @@ pub(crate) fn SessionReportView(visible: Signal<bool>) -> impl IntoView {
                 <div class="analysis-title">
                     <span class="panel-kicker">"Расход и контекст"</span>
                     <h1>{move || summary.get().map(|item| sidebar_session_title(&item)).unwrap_or_else(|| if selected.get().is_some() { "Сохранённая сессия" } else { "Выберите сессию" }.to_owned())}</h1>
-                    <p>{move || summary.get().map(|item| format!("{} · {} сообщений", item.workspace_path.display(), item.message_count))}</p>
+                    <p>{move || summary.get().map(|item| format!("{} · {}", item.workspace_path.display(), counted(item.message_count, ["сообщение", "сообщения", "сообщений"])))}</p>
                     <details class="analysis-identity">
                         <summary>"Идентификаторы сессии"</summary>
                         <code>{move || summary.get().map(|item| format!("ID: {}", item.session_id))}</code>
@@ -90,7 +94,7 @@ pub(crate) fn SessionReportView(visible: Signal<bool>) -> impl IntoView {
                         <For each=move || sessions.get() key=|item| item.session_dir.to_string_lossy().into_owned()
                             children=move |item| {
                                 let label = sidebar_session_title(&item);
-                                let description = format!("{} · {} сообщений · {}", item.workspace_path.display(), item.message_count, short_id(&item.session_id));
+                                let description = format!("{} · {} · {}", item.workspace_path.display(), counted(item.message_count, ["сообщение", "сообщения", "сообщений"]), short_id(&item.session_id));
                                 let option_session = item.session_dir.to_string_lossy().into_owned();
                                 view! {
                                     <option value=item.session_dir.to_string_lossy().into_owned() data-description=description

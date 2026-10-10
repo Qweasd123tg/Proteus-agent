@@ -26,6 +26,8 @@
 .workspace-tab-content .extension-panel-body { flex:1; min-height:0; padding:20px; overflow:auto; }
 .workspace-tab-content [data-view-layout=fill] .extension-panel-body { padding:0; display:flex; overflow:hidden; }
 .workspace-tab-content [data-view-layout=fill] .extension-panel-content { flex:1; min-height:0; height:100%; }
+/* A scrolling panel opened as a tab keeps a readable column instead of spreading labels and values to the window edges. */
+.workspace-tab-content [data-view-layout=scroll] .extension-panel-content { width:100%; max-width:720px; margin-inline:auto; }
 .extension-panel-content[hidden] { display:none; }
 .workspace-empty { display:flex; flex:1; flex-direction:column; justify-content:center; gap:8px; padding:32px; overflow:auto; }
 .workspace-empty button { justify-content:flex-start; background:var(--bg-panel-soft); min-height:42px; flex:none; }

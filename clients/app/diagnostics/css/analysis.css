@@ -9,9 +9,10 @@
     color:var(--text-main);
 }
 .turn-analysis h1 {
-    font-size:28px;
-    letter-spacing:-.6px;
-    margin:5px 0 8px;
+    font-size:22px;
+    font-weight:550;
+    letter-spacing:-.4px;
+    margin:0 0 6px;
 }
 .turn-analysis h2 {
     font-size:18px;
@@ -21,11 +22,10 @@
     font-size:14px;
     margin:0 0 10px;
 }
-.analysis-heading {
-    display:flex;
+/* The page already has its padding; the shared session heading must not indent the title past the content. */
+.turn-analysis > .analysis-heading {
     align-items:center;
-    justify-content:space-between;
-    gap:20px;
+    padding:0 0 18px;
     margin-bottom:24px;
 }
 .analysis-heading p,.analysis-note {

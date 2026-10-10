@@ -17,6 +17,8 @@ textarea { width: 100%; min-height: 100px; resize: vertical; padding: 10px; back
 .row { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
 .row span { color: var(--text-muted, #a0a0a0); }
 .row strong { font-weight: 500; text-align: right; overflow-wrap: anywhere; min-width: 0; }
+.footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.footer p { margin: 0; font-size: 11px; }
 details { margin: 12px 0; }
 summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; cursor: pointer; list-style: none; color: var(--text-muted, #a0a0a0); }
 summary::-webkit-details-marker { display: none; }

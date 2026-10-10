@@ -116,10 +116,9 @@ pub(crate) fn AnalysisView() -> impl IntoView {
     view! {
         <section class="turn-analysis">
             <header class="analysis-heading">
-                <div><span class="analysis-kicker">"INSPECTOR / ИСТОРИЯ ВЫПОЛНЕНИЯ"</span>
-                    <h1>"Анализ ходов"</h1><p>"От задачи до результата — по сохранённым фактам."</p></div>
+                <div><h1>"Анализ ходов"</h1><p>"От задачи до результата — по сохранённым фактам."</p></div>
                 <button class="secondary" disabled=move || loading.get() || selected.get().is_empty()
-                    on:click=move |_| refresh.update(|value| *value += 1)>"Обновить снимок"</button>
+                    on:click=move |_| refresh.update(|value| *value += 1)>"Обновить"</button>
             </header>
             <div class="analysis-toolbar">
                 <label for="inspector-analysis-session">"Сессия"</label>

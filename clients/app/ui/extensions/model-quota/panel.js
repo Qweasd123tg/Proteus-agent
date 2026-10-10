@@ -56,8 +56,6 @@ export function mount({ root, compact, services, signal }) {
     progress.low::-moz-progress-bar { background: var(--accent-red, #ef6b6b); }
     progress.low::-webkit-progress-value { background: var(--accent-red, #ef6b6b); }
     .reset { font-size: 11px; margin: 5px 0 12px; }
-    .footer { margin-top: 12px; display: flex; align-items: center; gap: 8px; justify-content: space-between; }
-    .footer p { margin: 0; font-size: 11px; }
   `);
   const content = element('div');
   const status = element('p', '', 'muted');

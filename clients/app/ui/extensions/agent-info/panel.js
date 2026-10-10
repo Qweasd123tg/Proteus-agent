@@ -6,8 +6,12 @@ export function mount({ root, compact, services, signal }) {
   status.className = 'muted';
   status.setAttribute('role', 'status');
   const refresh = document.createElement('button');
+  refresh.type = 'button';
   refresh.textContent = 'Обновить';
-  root.append(content, status, refresh);
+  const footer = document.createElement('div');
+  footer.className = 'footer';
+  footer.append(status, refresh);
+  root.append(content, footer);
   function row(label, value) {
     const line = document.createElement('div');
     line.className = 'row';
