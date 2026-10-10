@@ -119,6 +119,6 @@ def run(command, js, wait_for):
     js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
     js("if(document.querySelector('.tab-workspace').hidden)document.querySelector('[data-workspace-split]').click()")
     click('.workspace-add')
-    assert js("return document.querySelector('.workspace-picker').getBoundingClientRect().height<500"), 'Tab picker stretched to bottom'
+    assert js("const p=document.querySelector('.workspace-picker'),r=p.getBoundingClientRect(),last=p.lastElementChild.getBoundingClientRect();return r.bottom-last.bottom<16&&r.bottom<innerHeight-8"), 'Tab picker stretched to bottom'
     js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
     print('PASS: independent per-extension placement; live roots, hide/show and persistence; write rollback; compact hover/context/tab menus',flush=True)

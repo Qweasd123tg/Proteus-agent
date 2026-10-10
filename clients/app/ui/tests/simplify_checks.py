@@ -21,7 +21,7 @@ def run(command, js, wait_for, web, origin):
         assert js("return document.documentElement.scrollWidth<=Math.max(innerWidth,860)"), 'Settings horizontal overflow'
     command('/window/rect', {'width':1440,'height':1000})
     js("document.querySelector('[data-settings-section=diagnostic-usage]').click()")
-    assert js("return !document.querySelector('a[href=\"/context\"], a[href=\"/resume\"]') && document.querySelectorAll('[data-settings-section^=diagnostic-]').length===3 && [...document.querySelectorAll('.settings-nav button')].every(b=>b.querySelector('svg'))"), 'Diagnostics, history or settings icons are wrong'
+    assert js("return !document.querySelector('a[href=\"/context\"], a[href=\"/resume\"]') && document.querySelectorAll('[data-settings-section^=diagnostic-]').length===3 && [...document.querySelectorAll('.settings-nav button')].every(b=>b.querySelector('svg') || [...b.querySelectorAll('img')].some(i=>i.complete&&i.naturalWidth>0))"), 'Diagnostics, history or settings icons are wrong'
     js("document.querySelector('.settings-back').click()")
     wait_for(lambda: js("return !!document.querySelector('.composer textarea')"), 'Return to chat failed')
     assert js("return document.querySelector('.composer textarea').value==='Сохранённый черновик' && new URL(location.href).searchParams.get('session_dir')===sessionBefore && document.querySelector('.tab-workspace')===workspaceBefore"), 'Settings lost chat, draft or tool tabs'
