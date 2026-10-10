@@ -267,6 +267,23 @@ textarea {
     outline: 2px solid var(--text-muted);
     outline-offset: 3px;
 }
+/* Native disclosure triangles become the sprite chevron-right, turned down
+   while open. Disclosures with their own affordance (composer chevron, +/−)
+   are listed here so they keep it. */
+summary { list-style: none; }
+summary::-webkit-details-marker { display: none; }
+details:not(.composer-menu, .approval-arguments, .extension-source, .extension-reset, .inspector-content details) > summary::before {
+    content: '';
+    display: inline-block;
+    width: 1.15em;
+    height: 1.15em;
+    margin-right: 0.35em;
+    vertical-align: -0.22em;
+    background: currentColor;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7.5 5 5 5-5 5'/%3E%3C/svg%3E") center / contain no-repeat;
+    transition: transform var(--motion-fast, 160ms) ease;
+}
+details[open]:not(.composer-menu, .approval-arguments, .extension-source, .extension-reset, .inspector-content details) > summary::before { transform: rotate(90deg); }
 * { scrollbar-color: var(--border-strong) transparent; scrollbar-width: thin; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; transition: none !important; scroll-behavior: auto !important; }
