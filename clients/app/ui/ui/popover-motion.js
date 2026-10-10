@@ -1,12 +1,12 @@
 import { motionAllowed } from './motion.js';
 import { exitSnapshot, needsExitSnapshot } from './popover-exit.js';
+import './popover-alpha.js';
 
 // display keeps only the exiting pixels alive. The native popover state and
 // interaction end immediately, including light dismissal and external hide().
-// Opacity follows a registered number instead of transitioning itself: WebKitGTK
-// with Skia composition re-presents an earlier frame of a finished compositor
-// opacity animation, so menus blinked at the end of open/close. A main-thread
-// custom property fade keeps the same timing without that compositor path.
+// Opacity follows the registered --popover-alpha instead of transitioning
+// itself: on WebKitGTK 2.54 with Skia composition, accelerated opacity fades
+// were observed to end with one stale earlier frame (see ui-extensions.md).
 const css = `
 [data-popover-motion] {
   --popover-alpha:0;
@@ -24,8 +24,6 @@ const css = `
 [data-popover-motion="off"] { transition:none!important; }
 [data-popover-measuring] { --popover-alpha:var(--popover-start-opacity,0)!important; visibility:hidden!important; transition:none!important; }
 `;
-export const alphaProperty = '--popover-alpha';
-try { CSS.registerProperty({ name: alphaProperty, syntax: '<number>', inherits: false, initialValue: '1' }); } catch {}
 const styled = new WeakSet();
 
 export function popoverMotion(element, { onClose, onExit, anchor, quick = false, exit = true } = {}) {

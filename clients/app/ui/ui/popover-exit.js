@@ -1,4 +1,4 @@
-import { alphaProperty } from "./popover-motion.js";
+import { alphaProperty } from "./popover-alpha.js";
 // A closed popover leaves the top layer in current Firefox/WebKit. Containment
 // would change its fixed-position origin, so only its inert pixels fade on body.
 // Menus need their actual per-node paint and layout, including Shadow DOM theme

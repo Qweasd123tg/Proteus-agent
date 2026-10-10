@@ -803,15 +803,17 @@ Popover timeline проверяет неподвижную геометрию и
 заменяет визуальную проверку мигания кадров на конкретном GPU.
 
 Прозрачность меню анимируется через зарегистрированное число
-`--popover-alpha` (`opacity: var(--popover-alpha)`), а не через transition
-самого `opacity`. Покадровый захват экрана через wlr-screencopy в WebKitGTK 2.54
-на Wayland/NVIDIA показал: в конце compositor-анимации `opacity` Skia
-compositor иногда один кадр показывает ранний полупрозрачный кадр той же
-анимации. Меню после открытия на мгновение бледнеет, а после закрытия
-коротко появляется снова. Проблема воспроизводится и без
-`__NV_DISABLE_EXPLICIT_SYNC` и с `will-change: opacity`. Её нет при отключённой
-`UseSkiaForComposition` и при fade через custom property на главном потоке.
-Exit-snapshot анимирует то же свойство.
+`--popover-alpha` (`opacity: var(--popover-alpha)`, регистрация в
+`ui/popover-alpha.js`), а не через transition самого `opacity`; exit-snapshot
+анимирует то же свойство. Основание — локальное A/B-наблюдение на WebKitGTK
+2.54, Wayland и NVIDIA при покадровом захвате вывода компоновщика: с
+accelerated transition `opacity` и Skia composition в конце fade иногда
+появлялся один кадр, совпадающий с ранним полупрозрачным кадром той же
+анимации, — открытое меню на миг бледнело, закрытое коротко появлялось снова.
+Эффект сохранялся без `__NV_DISABLE_EXPLICIT_SYNC` и с `will-change: opacity`
+и не наблюдался при `UseSkiaForComposition=false` или при fade через custom
+property. Место дефекта в исходниках WebKit не установлено; это обход
+наблюдаемой зависимости, а не исправление upstream.
 
 Проверки страниц расширений и селекторов: `node --test clients/app/ui/tests/extensions/*.test.mjs`,
 `python3 -B clients/app/ui/tests/extensions_browser.py --modules-only`.
