@@ -769,6 +769,9 @@ app-server с subscription adapter и loopback HTTP provider, без live акк
 повторяет сценарий с системным уменьшением движения.
 `python3 -B clients/app/ui/tests/motion_webkit.py` проверяет сохранённые экраны и
 раскрывающиеся блоки в native WebKit.
+`python3 -B clients/app/ui/tests/text_fade_webkit.py` проверяет, что у длинной
+подписи, прокручиваемой наведением, уходящий край затухает без резкой обрезки,
+а после ухода курсора возвращается затухание в покое.
 `python3 -B clients/app/ui/tests/popover_motion_checks.py` проверяет выход меню,
 фокус и очистку временного DOM в WebKit; `--firefox` выбирает Firefox,
 `--firefox --reduced` включает его системное уменьшение движения.
