@@ -5,6 +5,8 @@
 .tool-chain-toggle > svg:first-child { flex:none; }
 .tool-chain-count, .tool-chain-state { flex:none; }
 .tool-chain-count { color:var(--text-main); }
+/* Without a call count the attention counters open the row. */
+.tool-chain-toggle > svg:first-child + .tool-chain-state::first-letter { text-transform:uppercase; }
 .tool-chain-preview { flex:0 1 auto; min-width:0; }
 .tool-chain-toggle > svg:last-child { width:14px;height:14px;transition:transform var(--motion-fast,120ms);transform:rotate(-90deg); }
 .tool-chain.expanded > .tool-chain-toggle > svg:last-child { transform:rotate(0); }

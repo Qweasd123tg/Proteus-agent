@@ -100,9 +100,10 @@
 .menu-option-check {
     flex: 0 0 auto;
     color: var(--text-main);
-    font-size: 12px;
     visibility: hidden;
 }
+
+.menu-option-check svg { width:16px; height:16px; }
 
 .menu-option.active .menu-option-check {
     visibility: visible;

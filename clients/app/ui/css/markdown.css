@@ -335,6 +335,14 @@
     background: transparent;
     color: var(--text-main);
     margin: 0;
+    padding: 12px 16px;
+}
+
+/* The vendored highlight theme pads highlighted code once more and makes it a
+   second scroller; the block keeps one padding before and after highlighting. */
+.message pre code.hljs {
+    overflow-x: visible;
+    padding: 0;
 }
 
 .code-block.wrap pre,

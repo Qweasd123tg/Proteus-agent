@@ -22,7 +22,9 @@ export function menu(root, kind, label, glyph, signal) {
   function position() {
     const r = summary.getBoundingClientRect(),
       size = panel.getBoundingClientRect();
-    panel.style.left = `${Math.max(8, Math.min(r.left, innerWidth - size.width - 8))}px`;
+    // A trigger near the right edge keeps the panel under itself, right-aligned.
+    const left = r.left + size.width + 8 <= innerWidth ? r.left : r.right - size.width;
+    panel.style.left = `${Math.max(8, Math.min(left, innerWidth - size.width - 8))}px`;
     panel.style.top = `${Math.max(8, Math.min(r.bottom + size.height + 8 < innerHeight ? r.bottom + 6 : r.top - size.height - 6, innerHeight - size.height - 8))}px`;
   }
   details.addEventListener(
@@ -93,7 +95,7 @@ export function option(root, label, active, run, description = "") {
   const check = document.createElement("span");
   check.className = "menu-option-check";
   check.setAttribute("aria-hidden", "true");
-  check.textContent = "✓";
+  check.append(icon("check"));
   button.append(text, check);
   button.disabled = !run;
   if (run) button.addEventListener("click", run);

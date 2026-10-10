@@ -195,18 +195,42 @@
    только когда выше есть блок входа: у одиночного ответа её не будет. */
 .tool-card-details > .tool-preview + .tool-preview,
 .tool-card-details > .tool-arg-list + .tool-preview,
-.tool-card-details > .tool-file-list + .tool-preview {
+.tool-card-details > .tool-file-list + .tool-preview,
+.tool-card-details > .plan-step-list + .tool-preview {
     border-top: 1px solid var(--border-strong);
     margin: var(--space-1) calc(-1 * var(--space-3)) 0;
     padding: var(--space-3) var(--space-3) 0;
 }
 
 .tool-arg-list,
-.tool-file-list {
+.tool-file-list,
+.plan-step-list {
     display: grid;
     min-width: 0;
     gap: 4px;
 }
+
+.plan-step-row {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: var(--space-2);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.plan-step-marker {
+    flex: none;
+    width: 14px;
+    color: var(--text-faint);
+    text-align: center;
+}
+
+.plan-step-row.completed .plan-step-marker { color: var(--accent-green); }
+.plan-step-row.completed .plan-step-text { color: var(--text-muted); }
+.plan-step-row.in_progress .plan-step-marker { color: var(--accent-blue); }
+.plan-step-row.in_progress .plan-step-text { color: var(--text-main); font-weight: 500; }
+.plan-step-row.pending .plan-step-text { color: var(--text-muted); }
 
 .tool-arg-row {
     display: grid;
