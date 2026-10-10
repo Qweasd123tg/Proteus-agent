@@ -2,6 +2,8 @@ export function form(root, service, signal) {
   const status = document.createElement("p");
   status.className = "settings-status";
   status.setAttribute("role", "status");
+  const group = document.createElement("div");
+  group.className = "settings-group";
   const controls = [];
   function row(label, hint) {
     const row = document.createElement("label");
@@ -15,10 +17,10 @@ export function form(root, service, signal) {
     detail.textContent = hint;
     text.append(title, detail);
     row.append(text);
-    root.insertBefore(row, status);
+    group.append(row);
     return row;
   }
-  root.append(status);
+  root.append(group, status);
   function set(key, value) {
     try {
       service.set(key, value);

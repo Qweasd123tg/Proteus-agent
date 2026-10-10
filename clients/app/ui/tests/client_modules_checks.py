@@ -8,7 +8,7 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
         js('document.querySelector('+repr(selector)+').click()')
     def page(id):
         click('[data-settings-section='+id+']')
-        wait_for(lambda: js('const page=document.querySelector("[data-module-page='+id+']");return !!page?.querySelector(".client-module-content")?.children.length || !!page?.querySelector("[data-select-slot]") || page?.querySelector("[data-builtin-module] input")?.checked===false'), 'Module missing: '+id)
+        wait_for(lambda: js('const page=document.querySelector("[data-module-page='+id+']");return !!page?.querySelector(".client-module-content")?.children.length || !!page?.querySelector("[data-extension-details]") || page?.querySelector("[data-builtin-module] input")?.checked===false'), 'Module missing: '+id)
     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
     wait_for(loaded,'Client not connected')
     # A selection saved before an update removed a page it had turned off

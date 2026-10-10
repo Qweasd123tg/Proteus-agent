@@ -27,7 +27,8 @@ export function mount(context) {
           { signal: view.signal },
         );
         const text = el("span", "agent-choice-text");
-        text.append(el("strong", "", title), el("span", "settings-hint", description));
+        text.append(el("strong", "", title));
+        if (description) text.append(el("span", "settings-hint", description));
         card.append(input, text);
         list.append(card);
         inputs.set(mode, input);
@@ -41,7 +42,7 @@ export function mount(context) {
           input.disabled = state.saving;
         }
       });
-      slotSection(body, snapshot, "policy", view, { heading: true });
+      slotSection(body, snapshot, "policy", view);
     },
   );
 }

@@ -28,6 +28,7 @@ export function mount(context) {
           status.textContent = revisions.length
             ? ""
             : "Сохранений пока не было: история появится после первого изменения настроек агента.";
+          status.className = revisions.length ? "settings-status" : "agent-empty";
           status.hidden = revisions.length > 0;
           // Each save changed its replaced state into the next newer one.
           let newer = saved;

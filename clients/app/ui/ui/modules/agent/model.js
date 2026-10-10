@@ -1,7 +1,6 @@
 import { agentSettings } from "./store.js";
 import { el, mountAgentPage } from "./page.js";
 import { parametersEditor } from "./editor.js";
-import { slotText } from "./labels.js";
 
 export function mount(context) {
   mountAgentPage(
@@ -9,7 +8,7 @@ export function mount(context) {
     "Модель профиля по умолчанию. Модель и уровень рассуждения текущего чата можно сменить в поле ввода.",
     (body, snapshot, view) => {
       const section = el("section", "agent-block");
-      section.append(el("h2", "", slotText.model[0]));
+      section.append(el("h2", "", "Провайдер"));
       const list = el("div", "agent-choices");
       list.setAttribute("role", "radiogroup");
       const inputs = new Map();
@@ -28,13 +27,16 @@ export function mount(context) {
         const text = el("span", "agent-choice-text");
         const meta = el("span", "agent-choice-meta");
         meta.append(el("span", "agent-chip", provider.id), el("span", "agent-chip", provider.provider));
-        text.append(el("strong", "", provider.label || provider.model), el("span", "settings-hint", provider.model), meta);
+        const title = provider.label || provider.model;
+        text.append(el("strong", "", title));
+        if (provider.model && provider.model !== title) text.append(el("span", "settings-hint", provider.model));
+        text.append(meta);
         card.append(input, text);
         list.append(card);
         inputs.set(provider.id, input);
       }
       if (!snapshot.providers.length)
-        section.append(el("p", "settings-hint", "В профиле нет настроенных провайдеров моделей."));
+        section.append(el("p", "agent-empty", "В профиле нет настроенных провайдеров моделей."));
       section.append(list);
       body.append(section);
       // Parameters belong to the model module export shared by its providers.

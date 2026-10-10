@@ -21,10 +21,12 @@ export function mountExtensionOptions(root, record, registry, services = {}) {
     if (enabled && hasSurface(record.manifest, 'compact')) body.append(widgetPlacement(registry.storage, bodyController.signal, record.id, record.widget));
     if (enabled && hasSurface(record.manifest, 'settings')) stopView = mountView(body, record, registry.storage, services, 'settings');
     else if (!enabled || !hasSurface(record.manifest, 'compact')) {
+      // Composer pickers are configured in the chat input; their description already says so.
+      const composer = hasSurface(record.manifest, 'composer-model') || hasSurface(record.manifest, 'composer-access');
+      if (enabled && composer) return;
       const hint = document.createElement('p'); hint.className = 'settings-hint';
       hint.textContent = !enabled ? 'Расширение выключено. Включите его, чтобы открыть параметры.'
-        : hasSurface(record.manifest, 'composer-model') || hasSurface(record.manifest, 'composer-access')
-        ? 'Выбор модели и прав доступен в поле ввода чата.' : 'У этого расширения нет дополнительных параметров.';
+        : 'У этого расширения нет дополнительных параметров.';
       body.append(hint);
     }
   });

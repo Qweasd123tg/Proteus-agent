@@ -42,7 +42,7 @@ export function fieldsForm(host, fields, context, base = [], inherited = {}) {
     }
     function refresh() {
       const explicit = specified() !== undefined;
-      meta.textContent = explicit ? "Своё значение" : defaultValue != null ? "По умолчанию" : field.required ? "Нужно задать" : "Не задано";
+      meta.textContent = explicit ? "Своё значение" : field.required && defaultValue == null ? "Нужно задать" : "";
       reset.disabled = !explicit;
       row.classList.toggle("overridden", explicit);
     }

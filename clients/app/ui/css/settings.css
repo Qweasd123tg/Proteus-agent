@@ -9,7 +9,7 @@
 .settings-nav > a svg, .settings-nav > button svg { width:18px; height:18px; flex:none; color:var(--text-muted); }
 .settings-nav .settings-back { margin-bottom:8px; }
 .settings-nav-label { padding:14px var(--nav-row-inset) 6px; color:var(--text-faint); font-size:12px; }
-.settings-content { min-width:0; overflow-y:auto; padding:56px max(32px,calc((100% - 900px)/2)) 64px; }
+.settings-content { min-width:0; overflow-y:auto; scrollbar-gutter:stable; padding:56px max(32px,calc((100% - 900px)/2)) 64px; }
 .settings-toolbar { margin-bottom:32px; }
 .settings-toolbar h1 { color:var(--text-main); font-size:25px; font-weight:500; letter-spacing:-.6px; }
 .settings-title-row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
@@ -20,7 +20,11 @@
 .settings-section { margin-top:0; }
 .settings-section h2 { font-size:14px; font-weight:500; margin-bottom:16px; }
 .settings-section-description { color:var(--text-muted); font-size:13px; margin-bottom:24px; }
-.settings-row { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:12px 16px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); color:var(--text-main); text-decoration:none; cursor:pointer; }
+.settings-row { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:14px 16px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); color:var(--text-main); text-decoration:none; cursor:pointer; }
+/* Settings lists share one grouped surface: a single frame with divided rows. */
+.settings-group { display:grid; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); overflow:hidden; }
+.settings-group > .settings-row { border:0; border-radius:0; background:none; }
+.settings-group > .settings-row + .settings-row { margin-top:0; border-top:1px solid var(--border-subtle); }
 .settings-label { display:grid; min-width:0; gap:4px; }
 .settings-label strong { font-size:13px; font-weight:500; }
 .settings-hint { max-width:640px; color:var(--text-muted); font-size:12px; line-height:1.5; }
@@ -81,8 +85,10 @@
 .shortcut-toolbar { display:flex; gap:12px; margin-bottom:16px; }
 .shortcut-toolbar input { flex:1; width:100%; }
 .shortcut-toolbar button { flex-shrink:0; }
-.shortcut-list { display:grid; }
-.shortcut-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; border-bottom:1px solid var(--border-subtle); }
+.shortcut-list { display:grid; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); overflow:hidden; }
+.shortcut-list:empty { display:none; }
+.shortcut-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 16px; }
+.shortcut-row + .shortcut-row { border-top:1px solid var(--border-subtle); }
 .shortcut-controls { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
 .shortcut-controls [data-bind] { min-width:132px; font-size:12px; font-family:var(--font-mono); border-color:var(--border-strong); }
 .shortcut-controls [aria-pressed=true] { outline:2px solid var(--text-muted); }

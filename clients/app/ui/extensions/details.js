@@ -15,19 +15,13 @@ export function mountExtensionDetails(root, record, registry) {
   const choices = document.createElement('div'); choices.className = 'module-selection';
   const notice = document.createElement('p'); notice.className = 'settings-status'; notice.setAttribute('role', 'status');
   const previewable = canPreview(record);
-  const preview = document.createElement('div');
-  if (!previewable) {
-    preview.className = 'settings-hint';
-    preview.textContent = 'Расширение не предоставляет живое превью.';
-  }
-  preview.hidden = previewable;
   const demo = document.createElement('div'); demo.className = 'extension-demo-host';
   function closeDemo() {
     if (!stopDemo) return;
     stopDemo(); stopDemo = undefined;
   }
   root.addEventListener('module-hide', closeDemo, { signal });
-  card.append(description, choices, notice, preview, demo); root.append(card);
+  card.append(description, choices, notice, demo); root.append(card);
   observeVisibility(root, visible => {
     if (!visible) closeDemo();
     else if (previewable && !stopDemo) stopDemo = mountLivePreview(demo, record);

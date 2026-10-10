@@ -1,5 +1,5 @@
 import { agentSettings } from "./store.js";
-import { button, el } from "./page.js";
+import { button, el, hint } from "./page.js";
 import { parametersEditor } from "./editor.js";
 import { openAgentTarget } from "./focus.js";
 import { packState, setPack } from "./packs.js";
@@ -7,6 +7,8 @@ import { safetyText, slotPage, slotText } from "./labels.js";
 
 const title = (slot) => slotText[slot]?.[0] ?? slot;
 const css = (value) => CSS.escape(value);
+const plural = new Intl.PluralRules("ru");
+const counted = (n, [one, few, many]) => `${n} ${{ one, few }[plural.select(n)] ?? many}`;
 
 /** Module parameters open on demand; one editor per export and page build. */
 function parameters(row, slot, id, view) {
@@ -41,7 +43,7 @@ function packBlock(plugin, exported, snapshot, view) {
   const name = el("strong", "", pack.id);
   const count = el("span", "agent-count");
   name.append(count);
-  text.append(name, el("span", "settings-hint", exported.description?.trim() || "Пакет инструментов"));
+  text.append(name, ...hint(exported.description));
   const group = check(`Все инструменты пакета ${pack.id}`, (on) =>
     agentSettings.update((draft) => (draft.tools = setPack(draft.tools, pack, tools, on))), view);
   group.dataset.agentPackToggle = pack.id;
@@ -95,7 +97,7 @@ function hookRow(exported, view) {
   const position = el("span", "agent-chip");
   const meta = el("span", "agent-choice-meta");
   meta.append(el("span", "agent-chip", title("hook")), position);
-  text.append(el("strong", "", exported.id), el("span", "settings-hint", exported.description?.trim() || "Описание не задано"), meta);
+  text.append(el("strong", "", exported.id), ...hint(exported.description), meta);
   const input = check(`Включить обработчик ${exported.id}`, (on) =>
     agentSettings.update((draft) => {
       draft.hooks = draft.hooks.filter((id) => id !== exported.id);
@@ -127,7 +129,7 @@ function slotRow(exported, snapshot, view) {
   const meta = el("span", "agent-choice-meta");
   const selected = el("span", "agent-chip", "выбран");
   meta.append(el("span", "agent-chip", title(exported.slot)), selected);
-  text.append(el("strong", "", exported.id), el("span", "settings-hint", exported.description?.trim() || "Описание не задано"), meta);
+  text.append(el("strong", "", exported.id), ...hint(exported.description), meta);
   head.append(text);
   row.append(head);
   const page = slotPage[exported.slot];
@@ -158,9 +160,13 @@ export function pluginCard(plugin, snapshot, view) {
   const packs = plugin.exports.filter((item) => item.slot === "tool");
   const hooks = plugin.exports.filter((item) => item.slot === "hook");
   const others = plugin.exports.filter((item) => item.slot !== "tool" && item.slot !== "hook");
-  for (const [n, label] of [[packs.length, "пакетов инструментов"], [hooks.length, "обработчиков"], [others.length, "модулей слотов"]])
-    if (n) counts.append(el("span", "agent-chip", `${n} ${label}`));
-  head.append(name, el("span", "settings-hint", plugin.description?.trim() || "Описание не задано"), command, counts);
+  for (const [n, forms] of [
+    [packs.length, ["пакет инструментов", "пакета инструментов", "пакетов инструментов"]],
+    [hooks.length, ["обработчик", "обработчика", "обработчиков"]],
+    [others.length, ["модуль слота", "модуля слотов", "модулей слотов"]],
+  ])
+    if (n) counts.append(el("span", "agent-chip", counted(n, forms)));
+  head.append(name, ...hint(plugin.description), command, counts);
   card.append(head);
   for (const [items, heading, render] of [
     [packs, "Пакеты инструментов", (item) => packBlock(plugin, item, snapshot, view)],

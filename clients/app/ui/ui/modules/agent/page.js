@@ -9,6 +9,12 @@ export function el(tag, className, text) {
   return node;
 }
 
+// Optional description line: modules without a description show no placeholder.
+export function hint(text) {
+  const value = text?.trim();
+  return value ? [el("span", "settings-hint", value)] : [];
+}
+
 export function button(text, onClick, signal, className) {
   const node = el("button", className, text);
   node.type = "button";
@@ -48,6 +54,7 @@ function saveBar(service, signal) {
       [text, kind] = [`Не сохранено: ${[...changed].map(changeLabel).join(", ")}`, "dirty"];
     else if (state.feedback?.kind === "saved") text = state.feedback.text;
     status.textContent = text;
+    status.title = text;
     element.dataset.state = kind;
     target.textContent = state.snapshot
       ? `${homePath(state.snapshot.target_path) || "Файл профиля недоступен"}${writable ? "" : " · только чтение"}`

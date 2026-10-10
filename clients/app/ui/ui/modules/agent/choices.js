@@ -1,41 +1,41 @@
 import { agentSettings } from "./store.js";
 import { el } from "./page.js";
 import { parametersEditor } from "./editor.js";
-import { slotText } from "./labels.js";
 
-/** A slot section: its implementations and the selected module parameters. */
-export function slotSection(container, snapshot, slotId, view, { heading = false } = {}) {
+/**
+ * A slot section: its implementations and the selected module parameters.
+ * Pages that host several slots name the choice after the slot instead of
+ * a generic «Реализация».
+ */
+export function slotSection(container, snapshot, slotId, view, { title, hint } = {}) {
   const slot = snapshot.slots.find((item) => item.id === slotId);
   if (!slot) {
     container.append(el("p", "settings-hint", "Этот слот недоступен в текущей сборке."));
     return;
-  }
-  if (heading) {
-    const [title, description] = slotText[slot.id] ?? [slot.title, slot.responsibility];
-    const head = el("div", "agent-group-head");
-    head.append(el("h2", "agent-group-title", title), el("p", "settings-hint", description));
-    container.append(head);
   }
   const parameters = el("div");
   let editor;
   implementationChoice(container, slot, view, (module) => {
     editor?.dispose();
     editor = module ? parametersEditor(parameters, slot.id, module, view.signal) : undefined;
-  });
+  }, { title, hint });
   container.append(parameters);
   view.sync((state) => editor?.sync(state));
 }
 
-/** Radio cards for implementations of one host-defined slot. */
-export function implementationChoice(container, slot, view, onSelected) {
+/** Radio rows for implementations of one host-defined slot. */
+export function implementationChoice(container, slot, view, onSelected, { title = "Реализация", hint } = {}) {
   const section = el("section", "agent-block");
-  section.append(el("h2", "", "Реализация"));
+  const head = el("div", "agent-block-title");
+  head.append(el("h2", "", title));
+  if (hint) head.append(el("p", "settings-hint", hint));
+  section.append(head);
   if (!slot.modules.length) {
     section.append(
       el(
         "p",
-        "settings-hint",
-        "В профиле нет модулей для этого слота. Подключите модуль в разделе components файла профиля.",
+        "agent-empty",
+        "Профиль не подключает модулей для этого слота. Реализация появится здесь, когда компонент профиля предоставит такой export.",
       ),
     );
     container.append(section);
@@ -57,10 +57,9 @@ export function implementationChoice(container, slot, view, onSelected) {
       { signal: view.signal },
     );
     const text = el("span", "agent-choice-text");
-    text.append(
-      el("strong", "", module.id),
-      el("span", "settings-hint", module.description?.trim() || "Описание не задано"),
-    );
+    text.append(el("strong", "", module.id));
+    const description = module.description?.trim();
+    if (description) text.append(el("span", "settings-hint", description));
     // Source and version tell where the module comes from; transport
     // capabilities stay in the diagnostics architecture view.
     const meta = el("span", "agent-choice-meta");

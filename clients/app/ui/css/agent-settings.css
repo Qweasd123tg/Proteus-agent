@@ -1,16 +1,20 @@
-/* Agent profile pages: one draft, typed parameter rows and a shared save bar. */
-.agent-page-body { display:grid; gap:28px; padding-bottom:24px; }
+/* Agent profile pages: one draft, grouped lists, typed parameter rows and a shared save bar. */
+.agent-page-body { display:grid; gap:32px; padding-bottom:24px; }
 .agent-block { display:grid; gap:12px; }
-.agent-block h2, .agent-group-title { margin:0; font-size:14px; font-weight:500; color:var(--text-main); }
-.agent-group-head { display:grid; gap:4px; margin-top:8px; }
+.agent-block h2 { margin:0; font-size:14px; font-weight:500; color:var(--text-main); }
+.agent-block-title { display:grid; gap:4px; }
 .agent-block-head { display:flex; align-items:center; justify-content:space-between; gap:16px; }
 .agent-count { color:var(--text-muted); font-weight:400; }
+.agent-empty { margin:0; padding:16px; border:1px dashed var(--border-subtle); border-radius:16px; color:var(--text-muted); font-size:13px; line-height:1.5; }
 
-.agent-choices, .agent-tools, .agent-hooks { display:grid; gap:8px; }
-.agent-choice, .agent-tool, .agent-hook { display:flex; align-items:flex-start; gap:12px; padding:12px 16px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); color:var(--text-main); }
+/* Lists share the settings group surface: one frame, divided rows, no nested cards. */
+.agent-choices, .agent-tools, .agent-hooks, .agent-revisions { display:grid; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); overflow:hidden; }
+:is(.agent-choices, .agent-tools, .agent-hooks, .agent-revisions):empty { display:none; }
+:is(.agent-choices, .agent-tools, .agent-hooks, .agent-revisions) > :not([hidden]) ~ :not([hidden]) { border-top:1px solid var(--border-subtle); }
+:is(.agent-choices, .agent-tools, .agent-hooks, .agent-revisions):has(> .agent-empty) { border:0; border-radius:0; background:none; }
+.agent-choice, .agent-tool, .agent-hook { display:flex; align-items:flex-start; gap:12px; padding:14px 16px; color:var(--text-main); }
 .agent-choice { cursor:pointer; }
-.agent-choice:hover { background:var(--bg-panel-hover); }
-.agent-choice.active { border-color:var(--border-strong); background:var(--bg-panel-hover); }
+.agent-choice:hover, .agent-choice.active { background:var(--bg-panel-hover); }
 .agent-choice input[type=radio] { margin:3px 0 0; }
 .agent-choice-text { display:grid; gap:4px; min-width:0; flex:1; }
 .agent-choice-text strong, .agent-choice-text code { font-size:13px; font-weight:500; overflow-wrap:anywhere; }
@@ -28,66 +32,69 @@
 
 .agent-hook { flex-direction:column; align-items:stretch; }
 .agent-hook-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-.agent-hook-actions { display:flex; gap:6px; flex:none; }
+.agent-hook.agent-hook-head { flex-direction:row; align-items:center; }
+.agent-hook-actions { display:flex; align-items:center; gap:6px; flex:none; }
 .agent-hook-actions button { min-width:32px; }
 .agent-hook-parameters > summary { cursor:pointer; color:var(--text-muted); font-size:12px; }
 .agent-hook-parameters[open] > summary { margin-bottom:12px; }
 
+/* A plugin is one group: its head and export sections are divided rows. */
 .agent-plugins { display:grid; gap:16px; }
-.agent-plugin { display:grid; gap:16px; padding:16px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); }
+.agent-plugin { display:grid; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); }
+.agent-plugin > * { padding:16px; }
+.agent-plugin > * + * { border-top:1px solid var(--border-subtle); }
 .agent-plugin h2 { margin:0; font-size:15px; font-weight:500; overflow-wrap:anywhere; }
 .agent-plugin-command { color:var(--text-faint); font-size:12px; overflow-wrap:anywhere; }
-.agent-plugin-section { display:grid; gap:8px; }
-.agent-plugin-heading { margin:0; color:var(--text-muted); font-size:12px; font-weight:500; }
-.agent-pack, .agent-plugin-export { display:grid; gap:8px; padding:12px 14px; border:1px solid var(--border-subtle); border-radius:12px; background:var(--bg-panel); }
-.agent-pack-tools { display:grid; gap:2px; }
+.agent-plugin > .agent-plugin-section { display:grid; padding:14px 0 4px; }
+.agent-plugin-heading { margin:0; padding:0 16px 2px; color:var(--text-muted); font-size:12px; font-weight:500; }
+.agent-pack, .agent-plugin-export { display:grid; gap:8px; padding:12px 16px; }
+.agent-plugin-section > :is(.agent-pack, .agent-plugin-export) + :is(.agent-pack, .agent-plugin-export) { border-top:1px solid var(--border-subtle); }
+.agent-pack-tools { display:grid; gap:2px; margin-right:-8px; padding-left:8px; border-left:1px solid var(--border-subtle); }
+.agent-pack-tools > p.settings-hint { margin:0; padding:4px 8px; }
 .agent-pack-tool { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:6px 8px; border-radius:8px; cursor:pointer; }
 .agent-pack-tool:hover { background:var(--bg-panel-hover); }
 .agent-pack-tool code { font-size:12px; }
 .agent-owner-link { min-height:0; padding:1px 8px; border:1px solid var(--border-subtle); border-radius:var(--radius-chip); background:none; color:var(--text-muted); font-size:11px; cursor:pointer; }
 .agent-owner-link:hover { border-color:var(--border-strong); background:var(--bg-panel-hover); color:var(--text-main); }
-.agent-spotlight { outline:1px solid var(--border-strong); outline-offset:2px; transition:outline-color .6s; }
+/* Grouped rows clip their frame, so the reveal outline is drawn inside the row. */
+.agent-spotlight { outline:1px solid var(--border-strong); outline-offset:-2px; transition:outline-color .6s; }
 
-.agent-revisions { display:grid; gap:8px; }
-.agent-revision { display:grid; gap:8px; padding:12px 16px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); }
+.agent-revision { display:grid; gap:8px; padding:14px 16px; }
 .agent-revision-changes { display:grid; gap:4px; margin:0; padding:0; list-style:none; color:var(--text-muted); font-size:12px; overflow-wrap:anywhere; }
 .agent-revision-changes strong { color:var(--text-main); font-weight:500; }
+/* A disabled restore button names the revision state, so it reads as a label. */
+.agent-revision .agent-hook-head button:disabled { opacity:1; border-color:transparent; background:none; color:var(--text-muted); cursor:default; }
 
 .agent-parameters.busy { pointer-events:none; opacity:.7; }
 .agent-parameters-body { display:grid; gap:8px; }
-.agent-parameter { display:grid; grid-template-columns:minmax(120px,220px) minmax(0,1fr) auto; align-items:center; gap:12px; padding:8px 12px; border:1px solid var(--border-subtle); border-radius:12px; background:var(--bg-panel-soft); }
-.agent-parameter[data-invalid] { border-color:var(--accent-red-border); }
-.agent-parameter-add { grid-template-columns:minmax(120px,220px) minmax(0,1fr) auto; background:transparent; border-style:dashed; }
-.agent-parameter-name { font-family:var(--font-mono); font-size:12px; overflow-wrap:anywhere; }
-.agent-parameter .settings-toggle { justify-self:start; }
 .agent-json-value, .agent-raw { font-family:var(--font-mono); font-size:12px; }
 .agent-raw { width:100%; resize:vertical; line-height:1.5; }
-.agent-parameter-remove { width:28px; min-height:28px; padding:0; border:0; background:transparent; color:var(--text-muted); font-size:16px; }
-.agent-parameter-remove:hover { color:var(--text-main); }
 .agent-error { min-height:16px; margin:0; color:var(--accent-red); font-size:12px; }
 .agent-mode-toggle { font-size:12px; }
 
 /* The bar sticks to the visible bottom edge; its shadow masks rows behind the gap. */
-.settings-content[data-view-layout=editor] { padding-bottom:0; scroll-padding-bottom:110px; }
-.agent-save-bar { position:sticky; bottom:12px; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; padding:12px 16px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel); box-shadow:var(--shadow-sm), 0 13px 0 0 var(--bg-root); }
-.agent-save-info { display:grid; gap:2px; min-width:0; }
-.agent-save-status { font-size:13px; color:var(--text-main); overflow-wrap:anywhere; }
+.settings-content[data-view-layout=editor] { padding-bottom:0; scroll-padding-bottom:96px; }
+.agent-save-bar { position:sticky; bottom:12px; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; padding:10px 10px 10px 16px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel); box-shadow:var(--shadow-sm), 0 13px 0 0 var(--bg-root); }
+.agent-save-info { display:flex; align-items:baseline; gap:10px; flex:1; min-width:0; }
+.agent-save-status { flex:0 1 auto; min-width:0; font-size:13px; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .agent-save-bar[data-state=dirty] .agent-save-status { color:var(--accent-yellow); }
-.agent-save-bar[data-state=error] .agent-save-status { color:var(--accent-red); }
-.agent-save-target { color:var(--text-faint); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.agent-save-bar[data-state=error] .agent-save-status { color:var(--accent-red); white-space:normal; overflow-wrap:anywhere; }
+.agent-save-target { flex:1 1 0; min-width:0; color:var(--text-faint); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .agent-save-actions { display:flex; gap:8px; flex:none; }
 .agent-save-actions button[hidden] { display:none; }
-.settings-content[data-view-layout=editor] .settings-section-description { margin-bottom:20px; }
+.settings-content[data-view-layout=editor] .settings-section-description { margin-bottom:24px; }
 
 @container (max-width:560px) {
-  .agent-parameter, .agent-parameter-add { grid-template-columns:minmax(0,1fr) auto; }
-  .agent-parameter > :nth-child(2) { grid-column:1 / -1; grid-row:2; }
-  .agent-save-bar { flex-wrap:wrap; }
+  .agent-save-target { display:none; }
 }
 
 /* Module-owned settings use the same typography and controls as preferences. */
 .agent-fields { display:grid; }
-.agent-field { display:grid; grid-template-columns:minmax(180px,1fr) minmax(140px,240px) 28px; gap:8px 20px; align-items:center; padding:18px 0; border-bottom:1px solid var(--border-subtle); }
+.agent-fields > .agent-field + .agent-field { border-top:1px solid var(--border-subtle); }
+:is(.agent-parameters-body, .agent-advanced) > .agent-fields { border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); }
+:is(.agent-parameters-body, .agent-advanced) > .agent-fields:empty { display:none; }
+:is(.agent-parameters-body, .agent-advanced) > .agent-fields > .agent-field { padding:14px 16px; }
+.agent-field { display:grid; grid-template-columns:minmax(180px,1fr) minmax(140px,240px) 28px; gap:8px 20px; align-items:center; padding:14px 0; }
 .agent-field .settings-label { gap:5px; min-width:0; }
 .agent-field .settings-label strong { font-size:13px; font-weight:500; }
 .agent-field .settings-hint { line-height:1.5; }
@@ -98,14 +105,16 @@
 .agent-field-input .settings-toggle { margin-left:auto; }
 .agent-field-unit, .agent-field-origin { font-size:11px; color:var(--text-faint); }
 .agent-field-origin { text-align:right; }
+.agent-field-origin:empty { display:none; }
 .agent-field.overridden .agent-field-origin { color:var(--text-muted); }
 .agent-field-reset { width:28px; min-width:28px; min-height:28px; padding:0; border:0; background:transparent; color:var(--text-muted); font-size:16px; }
 .agent-field-reset:disabled { opacity:.25; }
+.agent-field > .agent-field-reset:disabled { visibility:hidden; }
 .agent-field-reset:not(:disabled):hover { color:var(--text-main); background:var(--bg-panel-hover); }
 .agent-field > .agent-error { grid-column:2 / -1; min-height:0; }
 .agent-field > .agent-error:empty { display:none; }
 .agent-field[data-invalid] .agent-field-input > input, .agent-field[data-invalid] .agent-field-input > select, .agent-field[data-invalid] .agent-field-input > textarea { border-color:var(--accent-red-border); }
-.agent-advanced { margin-top:12px; }
+.agent-advanced { margin-top:8px; }
 .agent-advanced > summary, .agent-object > summary { cursor:pointer; color:var(--text-muted); font-size:13px; padding:10px 0; }
 .agent-field-group { grid-template-columns:minmax(0,1fr) 28px; }
 .agent-field-group > .settings-label { grid-column:1 / -1; }

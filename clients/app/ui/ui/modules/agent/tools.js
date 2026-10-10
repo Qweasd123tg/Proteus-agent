@@ -15,7 +15,7 @@ export function mount(context) {
     (body, snapshot, view) => {
       const section = el("section", "agent-block");
       const head = el("div", "agent-block-head");
-      const title = el("h2", "", slotText.tool[0]);
+      const title = el("h2", "", "Разрешённые инструменты");
       const count = el("span", "agent-count");
       title.append(count);
       const search = el("input", "agent-search");
@@ -66,8 +66,9 @@ export function mount(context) {
         }
         const name = el("code", "", tool.name);
         if (tool.source) name.title = `Источник: ${tool.source}`;
-        const description = el("span", "settings-hint agent-tool-description", tool.description || "Описание не задано");
-        text.append(name, description);
+        const description = el("span", "settings-hint agent-tool-description", tool.description || "");
+        text.append(name);
+        if (tool.description) text.append(description);
         if ((tool.description || "").length > FOLDED_DESCRIPTION) {
           description.classList.add("folded");
           const more = el("button", "agent-tool-more", "Подробнее");
@@ -106,7 +107,8 @@ export function mount(context) {
         count.textContent = ` · ${active} из ${rows.size}`;
         filter();
       });
-      slotSection(body, snapshot, "tool_exposure", view, { heading: true });
+      const [exposureTitle, exposureHint] = slotText.tool_exposure;
+      slotSection(body, snapshot, "tool_exposure", view, { title: exposureTitle, hint: exposureHint });
     },
   );
 }

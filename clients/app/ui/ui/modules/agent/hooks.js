@@ -1,5 +1,5 @@
 import { agentSettings } from "./store.js";
-import { button, el, mountAgentPage } from "./page.js";
+import { button, el, hint, mountAgentPage } from "./page.js";
 import { parametersEditor } from "./editor.js";
 
 const move = (list, index, step) => {
@@ -40,7 +40,7 @@ export function mount(context) {
             const text = el("span", "agent-choice-text");
             text.append(
               el("strong", "", `${index + 1}. ${id}`),
-              el("span", "settings-hint", describe(id)?.description?.trim() || (describe(id) ? "Описание не задано" : "Модуль не найден в текущей сборке")),
+              ...(describe(id) ? hint(describe(id).description) : hint("Модуль не найден в текущей сборке")),
             );
             const actions = el("span", "agent-hook-actions");
             const update = (next) => agentSettings.update((draft) => (draft.hooks = next));
@@ -60,20 +60,20 @@ export function mount(context) {
             enabledList.append(row);
             editors.push(parametersEditor(details, "hook", id, view.signal));
           });
-          if (!hooks.length) enabledList.append(el("p", "settings-hint", "Обработчики не включены."));
+          if (!hooks.length) enabledList.append(el("p", "agent-empty", "Обработчики не включены."));
           const available = snapshot.hook_modules.filter((module) => !hooks.includes(module.id));
           for (const module of available) {
             const row = el("div", "agent-hook agent-hook-head");
             row.dataset.agentHookAvailable = module.id;
             const text = el("span", "agent-choice-text");
-            text.append(el("strong", "", module.id), el("span", "settings-hint", module.description?.trim() || "Описание не задано"));
+            text.append(el("strong", "", module.id), ...hint(module.description));
             const add = button("Включить", () => agentSettings.update((draft) => draft.hooks.push(module.id)), view.signal, "secondary");
             add.disabled = state.saving;
             row.append(text, add);
             availableList.append(row);
           }
           if (!available.length)
-            availableList.append(el("p", "settings-hint", snapshot.hook_modules.length ? "Все обработчики включены." : "В профиле нет модулей обработчиков."));
+            availableList.append(el("p", "agent-empty", snapshot.hook_modules.length ? "Все обработчики включены." : "В профиле нет модулей обработчиков."));
         }
         for (const editor of editors) editor.sync(state);
       });
