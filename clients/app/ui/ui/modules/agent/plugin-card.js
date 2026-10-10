@@ -117,24 +117,32 @@ function hookRow(exported, view) {
   return row;
 }
 
-/** A single-selection export is chosen on its slot page, never here. */
-function slotRow(exported, view) {
-  const row = el("div", "agent-plugin-export agent-hook-head");
+/** A slot export with a selection page is chosen there, never here; exports
+ * without such a page (for example context providers) edit parameters here. */
+function slotRow(exported, snapshot, view) {
+  const row = el("div", "agent-plugin-export");
   row.dataset.agentExport = `${exported.slot}/${exported.id}`;
+  const head = el("div", "agent-hook-head");
   const text = el("span", "agent-choice-text");
   const meta = el("span", "agent-choice-meta");
   const selected = el("span", "agent-chip", "выбран");
   meta.append(el("span", "agent-chip", title(exported.slot)), selected);
   text.append(el("strong", "", exported.id), el("span", "settings-hint", exported.description?.trim() || "Описание не задано"), meta);
-  row.append(text);
+  head.append(text);
+  row.append(head);
   const page = slotPage[exported.slot];
   if (page)
-    row.append(button(`Открыть ${title(exported.slot)}`, () =>
+    head.append(button(`Открыть ${title(exported.slot)}`, () =>
       openAgentTarget(page, exported.slot === "model"
         ? `[data-agent-parameters="model/${css(exported.id)}"]`
         : `[data-agent-module="${css(exported.id)}"]`), view.signal, "secondary"));
+  else parameters(row, exported.slot, exported.id, view);
   view.sync((state) => {
-    selected.hidden = exported.slot in state.draft.modules ? state.draft.modules[exported.slot] !== exported.id : !exported.active;
+    // The model export serves the draft's provider; other slots select it directly.
+    const active = exported.slot === "model"
+      ? snapshot.providers.find((provider) => provider.id === state.draft.provider)?.provider === exported.id
+      : exported.slot in state.draft.modules ? state.draft.modules[exported.slot] === exported.id : exported.active;
+    selected.hidden = !active;
   });
   return row;
 }
@@ -157,7 +165,7 @@ export function pluginCard(plugin, snapshot, view) {
   for (const [items, heading, render] of [
     [packs, "Пакеты инструментов", (item) => packBlock(plugin, item, snapshot, view)],
     [hooks, "Обработчики", (item) => hookRow(item, view)],
-    [others, "Модули слотов", (item) => slotRow(item, view)],
+    [others, "Модули слотов", (item) => slotRow(item, snapshot, view)],
   ]) {
     if (!items.length) continue;
     const section = el("div", "agent-plugin-section");
