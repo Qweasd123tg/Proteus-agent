@@ -1,16 +1,35 @@
 //! Historical inspection never resumes a session or executes a module.
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::{Result, anyhow};
 use proteus_contracts::{app_protocol::analysis::*, domain::TurnId};
 
-use super::sessions::{percent_decode_query_value, required_session_query};
+use super::{
+    HttpAppState,
+    sessions::{percent_decode_query_value, required_session_query},
+};
 use crate::core::{
     JournalEntry, JournalProjection, ModelResponseOutcome, SessionStore, ToolCallRecordPhase,
     TurnSettlementStatus, canonicalize_session_dir_path,
 };
 
-pub(super) async fn read(query: Option<&str>) -> Result<AppSessionAnalysis> {
+pub(super) async fn read(state: &HttpAppState, query: Option<&str>) -> Result<AppSessionAnalysis> {
+    let (session_dir, requested) = parse(query)?;
+    // A live session writes its directory with the first journal entry; until then its journal is empty.
+    if !tokio::fs::try_exists(&session_dir).await?
+        && let Some(server) = state.server_for_session_dir(&session_dir).await
+    {
+        let session_id = server.session_id();
+        return project(
+            session_id,
+            &JournalProjection::build(session_id, Vec::new())?,
+            requested,
+        );
+    }
+    read_stored(session_dir, requested).await
+}
+
+fn parse(query: Option<&str>) -> Result<(PathBuf, Option<TurnId>)> {
     let session_dir = canonicalize_session_dir_path(required_session_query(query)?)?;
     let mut requested = None;
     for pair in query.unwrap_or_default().split('&') {
@@ -22,6 +41,13 @@ pub(super) async fn read(query: Option<&str>) -> Result<AppSessionAnalysis> {
             requested = Some(percent_decode_query_value(value)?.parse::<TurnId>()?);
         }
     }
+    Ok((session_dir, requested))
+}
+
+async fn read_stored(
+    session_dir: PathBuf,
+    requested: Option<TurnId>,
+) -> Result<AppSessionAnalysis> {
     tokio::task::spawn_blocking(move || {
         let store = SessionStore::open(session_dir)?;
         let projection = store.load_projection()?;

@@ -17,10 +17,10 @@
 .graph-connections > path { stroke: var(--border-strong); stroke-width: 1.6; fill: none; }
 .graph-connections > path.selected { stroke: var(--accent-blue); stroke-width: 2.5; }
 .graph-connections > path.dimmed { opacity: .16; }
-button.graph-node { position: absolute; width: var(--graph-node-width); height: var(--graph-node-height); max-width: none; display: flex; align-items: flex-start; flex-direction: column; justify-content: center; gap: 5px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg-panel); cursor: pointer; text-align: left; box-shadow: 0 3px 12px rgb(0 0 0 / 12%); }
+button.graph-node { position: absolute; width: var(--graph-node-width); height: var(--graph-node-height); max-width: none; display: flex; align-items: flex-start; flex-direction: column; justify-content: center; gap: 4px; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg-panel); cursor: pointer; text-align: left; box-shadow: 0 3px 12px rgb(0 0 0 / 12%); }
 button.graph-node:hover { border-color: var(--text-muted); background: var(--bg-panel-soft); }
 button.graph-node:active { transform: none; }
-.graph-node strong, .graph-node span { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.graph-node strong, .graph-node span { display: block; flex: none; max-width: 100%; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .graph-node strong { font-size: 16px; font-weight: 550; }
 .graph-node span { font-size: 13px; color: var(--text-muted); }
 button.graph-node[data-kind=config], button.graph-node[data-kind=tools] { background: var(--bg-panel-soft); }

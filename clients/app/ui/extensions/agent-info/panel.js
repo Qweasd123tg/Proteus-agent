@@ -39,7 +39,7 @@ export function mount({ root, compact, services, signal }) {
         tools.append(name);
       }
       content.append(tools);
-      status.textContent = `Обновлено в ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      status.textContent = `Обновлено ${new Date().toLocaleTimeString('ru-RU')}`;
     } catch (error) {
       if (signal.aborted) return;
       content.replaceChildren();

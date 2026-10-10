@@ -32,6 +32,18 @@ pub(crate) fn short_id(id: impl ToString) -> String {
     let id = id.to_string();
     id.get(..8).unwrap_or(&id).to_owned()
 }
+
+/// `count` with the Russian noun form for it: `[one, few, many]`.
+pub(crate) fn counted(count: usize, [one, few, many]: [&str; 3]) -> String {
+    let word = match (count % 10, count % 100) {
+        (_, 11..=14) => many,
+        (1, _) => one,
+        (2..=4, _) => few,
+        _ => many,
+    };
+    format!("{count} {word}")
+}
+
 pub(crate) fn format_token_count(tokens: u32) -> String {
     if tokens < 1000 {
         return tokens.to_string();
@@ -40,4 +52,30 @@ pub(crate) fn format_token_count(tokens: u32) -> String {
         "{}k",
         format!("{:.1}", f64::from(tokens) / 1000.0).trim_end_matches(".0")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn counted_uses_russian_plural_forms() {
+        let forms = ["модуль", "модуля", "модулей"];
+        let words =
+            [0, 1, 2, 5, 11, 12, 21, 22, 25, 111, 104].map(|count| super::counted(count, forms));
+        assert_eq!(
+            words,
+            [
+                "0 модулей",
+                "1 модуль",
+                "2 модуля",
+                "5 модулей",
+                "11 модулей",
+                "12 модулей",
+                "21 модуль",
+                "22 модуля",
+                "25 модулей",
+                "111 модулей",
+                "104 модуля",
+            ]
+        );
+    }
 }

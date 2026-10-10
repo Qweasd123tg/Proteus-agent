@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::architecture_map::TopologyMapView;
 use crate::architecture_model::{module_source_label, non_empty, slot_views};
 use crate::types::*;
-use crate::ui_utils::compact_json;
+use crate::ui_utils::{compact_json, counted};
 
 #[component]
 pub(super) fn TopologySnapshotView(snapshot: TopologySnapshot, source: String) -> impl IntoView {
@@ -59,12 +59,12 @@ pub(super) fn TopologySnapshotView(snapshot: TopologySnapshot, source: String) -
                 <div><span>"Профиль"</span><strong>{non_empty(&snapshot.profile, "default")}</strong></div>
                 <div><span>"Модель"</span><strong>{model_label}</strong></div>
                 <div><span>"Hooks · порядок"</span><strong>{hook_order}</strong></div>
-                <div><span>"Состав"</span><strong>{format!("{process_module_count} модулей · {registered_tool_count} инструментов")}</strong></div>
+                <div><span>"Состав"</span><strong>{format!("{} · {}", counted(process_module_count, ["модуль", "модуля", "модулей"]), counted(registered_tool_count, ["инструмент", "инструмента", "инструментов"]))}</strong></div>
             </section>
             <div class="architecture-tabs" role="group" aria-label="Представление архитектуры">
                 <button type="button" aria-pressed=move || (active_tab.get() == "map").to_string() on:click=move |_| set_active_tab.set("map")>"Карта связей"</button>
                 <button type="button" aria-pressed=move || (active_tab.get() == "catalog").to_string() on:click=move |_| set_active_tab.set("catalog")>"Каталог сборки"</button>
-                <span>{format!("{} предупреждений · {provided_only_count} незарегистрированных инструментов", snapshot.warnings.len())}</span>
+                <span>{format!("{} · {}", counted(snapshot.warnings.len(), ["предупреждение", "предупреждения", "предупреждений"]), counted(provided_only_count, ["незарегистрированный инструмент", "незарегистрированных инструмента", "незарегистрированных инструментов"]))}</span>
             </div>
             <div hidden=move || active_tab.get() != "map"><TopologyMapView source /></div>
             <div class="architecture-catalog" hidden=move || active_tab.get() != "catalog">

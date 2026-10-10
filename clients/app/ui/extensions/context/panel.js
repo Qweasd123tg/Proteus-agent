@@ -9,9 +9,9 @@ export function mount({ root, compact, services }) {
   return services['agent.session.read'].subscribe(snapshot => {
     const usage = snapshot.context, key = JSON.stringify(usage); if (key === previous) return; previous = key;
     const percent = usage?.max ? 100 * usage.used / usage.max : null;
-    label.textContent = usage ? `${usage.used.toLocaleString()} / ${usage.max.toLocaleString()} токенов` : 'Замеров ещё нет';
+    label.textContent = usage ? `${usage.used.toLocaleString('ru-RU')} / ${usage.max.toLocaleString('ru-RU')} токенов` : 'Замеров ещё нет';
     bar.value = percent ?? 0; bar.hidden = !usage;
-    threshold.textContent = usage?.trigger ? `Автокомпакт: ${usage.trigger.toLocaleString()} токенов` : '';
+    threshold.textContent = usage?.trigger ? `Автокомпакт: ${usage.trigger.toLocaleString('ru-RU')} токенов` : '';
     updateRing(percent, usage ? `Контекст: ${Math.round(percent ?? 0)}%` : 'Контекст: нет данных');
   });
 }

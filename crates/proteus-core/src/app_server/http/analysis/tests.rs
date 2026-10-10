@@ -13,6 +13,11 @@ use crate::{
 };
 use serde_json::json;
 
+async fn read(query: Option<&str>) -> Result<AppSessionAnalysis> {
+    let (session_dir, requested) = parse(query)?;
+    read_stored(session_dir, requested).await
+}
+
 async fn append(store: &SessionStore, owner: ExecutionAttribution, entry: JournalEntry) {
     if matches!(entry, JournalEntry::TurnSettled(_)) {
         let agent = owner.agent.unwrap();

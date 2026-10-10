@@ -136,7 +136,7 @@ pub(crate) fn AnalysisView() -> impl IntoView {
                     {move || sessions.get().into_iter().map(|item| {
                         let path = item.session_dir.to_string_lossy().into_owned();
                         let selected_path = path.clone();
-                        let label = item.preview.unwrap_or_else(|| "Без названия".into());
+                        let label = item.preview.unwrap_or_else(|| "Новый чат".into());
                         let description = item.workspace_path.to_string_lossy().into_owned();
                         view! { <option value=path data-description=description prop:selected=move || selected.get() == selected_path>{label}</option> }
                     }).collect_view()}

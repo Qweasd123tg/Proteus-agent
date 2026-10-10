@@ -6,7 +6,7 @@ use leptos::{prelude::*, task::spawn_local};
 
 use crate::api::get_text;
 use crate::types::*;
-use crate::ui_utils::copy_to_clipboard;
+use crate::ui_utils::{copy_to_clipboard, counted};
 
 mod snapshot;
 use snapshot::TopologySnapshotView;
@@ -85,9 +85,18 @@ fn load_topology_snapshot(
                 let warning_count = snapshot.warnings.len();
                 set_source.set(text);
                 set_snapshot.set(Some(snapshot));
-                set_status.set(format!(
-                    "{slot_count} слотов · {tool_count} инструментов · {process_count} модулей · предупреждений: {warning_count}"
-                ));
+                set_status.set(
+                    [
+                        counted(slot_count, ["слот", "слота", "слотов"]),
+                        counted(tool_count, ["инструмент", "инструмента", "инструментов"]),
+                        counted(process_count, ["модуль", "модуля", "модулей"]),
+                        counted(
+                            warning_count,
+                            ["предупреждение", "предупреждения", "предупреждений"],
+                        ),
+                    ]
+                    .join(" · "),
+                );
             }
             Err(error) => {
                 set_snapshot.set(None);

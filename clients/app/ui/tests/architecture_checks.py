@@ -8,6 +8,8 @@ from select_checks import run as check_selects
 def run(command, js, wait_for, web, origin):
     command('/url', {'url': web + '/architecture?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
     wait_for(lambda: js("return !!document.querySelector('[data-node-id=\"slot:workflow\"]')"), 'Inspector graph did not mount from the real topology API')
+    clipped = js("return [...document.querySelectorAll('.graph-node strong, .graph-node span')].filter(text => text.scrollHeight > text.clientHeight || text.getBoundingClientRect().bottom > text.parentElement.getBoundingClientRect().bottom).map(text => text.textContent)")
+    assert not clipped, f'Graph node labels are clipped vertically: {clipped}'
     check_selects(command, js, wait_for)
     js("window.savedClipboardWrite=navigator.clipboard.writeText;navigator.clipboard.writeText=()=>Promise.reject(new Error('fixture clipboard rejection'));document.querySelector('.architecture-page .toolbar-actions button').click()")
     wait_for(lambda: js("return document.querySelector('.resume-toolbar p').textContent.includes('Не удалось скопировать Mermaid')"), 'Clipboard rejection was reported as success')
