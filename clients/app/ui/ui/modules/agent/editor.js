@@ -78,8 +78,10 @@ export function parametersEditor(host, slot, module, signal) {
   return {
     sync(state) {
       saving = state.saving; section.classList.toggle("busy", saving);
-      const description = slot === "model" ? state.snapshot.model_modules.find(item => item.id === module) : slot === "hook" ? state.snapshot.hook_modules.find(item => item.id === module) :
-        state.snapshot.slots.find(item => item.id === slot)?.modules.find(item => item.id === module);
+      const description = (slot === "model" ? state.snapshot.model_modules.find(item => item.id === module) : slot === "hook" ? state.snapshot.hook_modules.find(item => item.id === module) :
+        state.snapshot.slots.find(item => item.id === slot)?.modules.find(item => item.id === module))
+        // Tool packs and other plugin exports describe themselves in `plugins`.
+        ?? state.snapshot.plugins.flatMap(plugin => plugin.exports).find(item => item.slot === slot && item.id === module);
       schema = description?.config_schema;
       const nextSchema = JSON.stringify(schema), text = moduleText(state.draft, slot, module);
       if (text !== written || nextSchema !== schemaText) { schemaText = nextSchema; rebuild(text); }

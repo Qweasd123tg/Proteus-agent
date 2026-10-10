@@ -14,6 +14,22 @@ export const slotText = {
   hook: ["Hooks", "Порядок и параметры обработчиков шагов агента."],
 };
 
+export const pluginText = ["Plugins", "Процессные компоненты, их пакеты инструментов, обработчики и модули слотов."];
+
+// Settings page that selects a slot's module; plugin exports link to it.
+export const slotPage = {
+  model: "agent-model",
+  workflow: "agent-workflow",
+  context: "agent-context",
+  compactor: "agent-compactor",
+  tool_exposure: "agent-tools",
+  policy: "agent-access",
+  patch: "agent-patch",
+  search: "agent-search",
+  memory: "agent-memory",
+  hook: "agent-hooks",
+};
+
 const changeText = {
   ...Object.fromEntries(Object.entries(slotText).map(([id, [title]]) => [id, title])),
   addons: "Дополнения агента",

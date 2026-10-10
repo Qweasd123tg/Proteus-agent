@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { buildRequest, changes, draftFromSnapshot } from '../../ui/modules/agent/draft.js';
 import { describeChanges, revisionDraft } from '../../ui/modules/agent/revisions.js';
 import { agentSettings } from '../../ui/modules/agent/store.js';
+import { ownerOf, packState, setPack } from '../../ui/modules/agent/packs.js';
 
 const snapshot = () => ({
   addon_settings: {addons: {disabled_skills: [], disabled_mcp_servers: [], plugins: []}, mcp_servers: []},
@@ -18,6 +19,7 @@ const snapshot = () => ({
   module_config: { workflow: { loop: { max_steps: 8 } }, model: { openai: { timeout_ms: 10 } } },
   tools_enabled: ['shell', 'read_file'],
   tools: [],
+  plugins: [],
   slots: [{ id: 'workflow', modules: [{ id: 'loop' }, { id: 'plan' }] }],
   warnings: [],
 });
@@ -131,4 +133,37 @@ test('external refresh rebases unsaved parameters without undoing untouched sett
   assert.equal(request.permission_mode,'plan');
   assert.deepEqual(request.hooks,['second']);
   assert.match(agentSettings.state().feedback.text,/несохранённые/);
+});
+
+test('a tool pack switches as a group in the shared draft and reports mixed state', async () => {
+  const owner = { component_id: 'reference', module_id: 'git_tools' };
+  const tools = [
+    { name: 'git_status', owner, enabled: true, registered: true },
+    { name: 'git_diff', owner, enabled: false, registered: false },
+    { name: 'git_managed', owner, enabled: true, registered: true, runtime_managed: true },
+    { name: 'shell', owner: null, enabled: true, registered: true },
+  ];
+  const pack = { id: 'git_tools', tools: ['git_status', 'git_diff', 'git_managed'] };
+  const saved = { ...snapshot(), tools_enabled: ['git_status', 'shell'], tools,
+    plugins: [{ id: 'reference', command: 'proteus-reference-module', description: null,
+      exports: [{ slot: 'tool', id: 'git_tools', active: true, description: null, config_schema: null }], tool_packs: [pack] }] };
+  assert.deepEqual(ownerOf(tools[1]), { plugin: 'reference', pack: 'git_tools' });
+  assert.equal(ownerOf(tools[3]), null, 'ownership is host-reported, not inferred');
+  await agentSettings.load({ read: async () => saved }, true);
+  const state = () => packState(pack, tools, agentSettings.state().draft.tools);
+  assert.deepEqual(state(), { active: 1, total: 2, state: 'mixed' }, 'runtime-managed tools are outside the switch');
+  agentSettings.update((draft) => (draft.tools = setPack(draft.tools, pack, tools, true)));
+  assert.equal(state().state, 'on');
+  assert.deepEqual(buildRequest(saved, agentSettings.state().draft).tools_enabled, ['git_diff', 'git_status', 'shell']);
+  agentSettings.update((draft) => (draft.tools = setPack(draft.tools, pack, tools, false)));
+  assert.equal(state().state, 'off');
+  assert.deepEqual([...agentSettings.changes()], ['tools'], 'a pack is an ordinary tools_enabled edit');
+  assert.deepEqual(buildRequest(saved, agentSettings.state().draft).tools_enabled, ['shell'], 'other packs keep their tools');
+  // An external profile change keeps the pending pack edit and its other areas.
+  await agentSettings.refresh({ read: async () => ({ ...saved, permission_mode: 'plan' }) });
+  const request = buildRequest(saved, agentSettings.state().draft);
+  assert.deepEqual(request.tools_enabled, ['shell']);
+  assert.equal(request.permission_mode, 'plan');
+  agentSettings.reset();
+  assert.equal(state().state, 'mixed');
 });

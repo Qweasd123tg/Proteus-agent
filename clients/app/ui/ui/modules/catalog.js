@@ -1,4 +1,4 @@
-import { slotText } from "./agent/labels.js";
+import { pluginText, slotText } from "./agent/labels.js";
 
 // The composition root supplies modules; origin does not grant extra services.
 const module = (
@@ -46,6 +46,7 @@ export const builtins = [
   agentPage("agent-context", slotText.context, "./agent/slot.js?slot=context", "layers"),
   agentPage("agent-compactor", slotText.compactor, "./agent/slot.js?slot=compactor", "compress"),
   agentPage("agent-tools", slotText.tool, "./agent/tools.js", "wrench"),
+  agentPage("agent-plugins", pluginText, "./agent/plugins.js", "modules"),
   agentPage("agent-access", slotText.policy, "./agent/access.js", "shield"),
   agentPage("agent-patch", slotText.patch, "./agent/slot.js?slot=patch", "patch"),
   agentPage("agent-search", slotText.search, "./agent/slot.js?slot=search", "search"),

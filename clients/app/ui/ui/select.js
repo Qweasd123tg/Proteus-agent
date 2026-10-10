@@ -17,11 +17,11 @@ function open(select) {
   let index = select.selectedIndex, query = '', typedAt = 0;
   const options = [...select.options], rows = [];
   const available = i => options[i] && !options[i].hidden && !options[i].disabled && !options[i].parentElement.disabled && !options[i].parentElement.hidden;
-  function choose(i) {
+  function choose(i, pointer = false) {
     if (!available(i)) return;
     const changed = select.selectedIndex !== i;
     select.selectedIndex = i;
-    close();
+    close(true, pointer);
     if (!changed) return;
     select.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
     select.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
@@ -49,16 +49,17 @@ function open(select) {
     }
     row.append(text); rows.push(row); menu.append(row);
     row.addEventListener('pointermove', () => { if (available(i)) highlight(i); }, { signal });
-    row.addEventListener('click', () => choose(i), { signal });
+    row.addEventListener('click', () => choose(i, true), { signal });
   });
-  function cleanup(focus = false) {
+  function cleanup(focus = false, pointer = false) {
     if (active?.menu !== menu) return;
     controller.abort(); observer.disconnect(); removalObserver.disconnect(); active = undefined;
     previousAria.forEach(([name, value]) => value === null ? select.removeAttribute(name) : select.setAttribute(name, value));
-    if (focus && select.isConnected) select.focus({ preventScroll: true });
+    // A pointer choice returns focus without the keyboard focus ring.
+    if (focus && select.isConnected) select.focus(pointer ? { preventScroll: true, focusVisible: false } : { preventScroll: true });
   }
-  function close(focus = true) {
-    cleanup(focus);
+  function close(focus = true, pointer = false) {
+    cleanup(focus, pointer);
     if (!menu.isConnected) { motion.dispose(); menu.remove(); }
     else motion.hide();
   }

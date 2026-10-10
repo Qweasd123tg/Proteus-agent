@@ -114,10 +114,36 @@ def run(command, js, wait_for, config, capture):
     wait_for(lambda: status().startswith('Сохранено'), 'List did not save: ' + status())
     values = tomllib.loads(config.read_text())['module_config']['context']['repo_aware']
     assert values == {'providers': ['project_instructions', 'manifest', 'git_status', 'repo_tree', 'memory']}, values
+    # Tools name their host-reported plugin and pack; the link opens that pack.
+    page('agent-tools')
+    owner = js("const b=document.querySelector('[data-module-page=agent-tools] [data-agent-owner]');return b&&b.dataset.agentOwner")
+    assert owner, 'Plugin tools show no owner link'
+    plugin, pack = owner.split('/', 1)
+    click(f'[data-module-page=agent-tools] [data-agent-owner="{owner}"]')
+    scope = f'[data-module-page=agent-plugins] [data-agent-plugin="{plugin}"] [data-agent-pack="{pack}"]'
+    wait_for(lambda: js(f"const s=document.querySelector('[data-module-page=agent-plugins]');const t=document.querySelector('{scope}');return s&&!s.hidden&&t&&t.contains(document.activeElement)"), 'Owner link did not show and focus its pack')
+    capture('plugins-pack')
+    tools = js(f"return [...document.querySelectorAll('{scope} [data-agent-pack-tool] input:not(:disabled)')].map(i=>i.closest('[data-agent-pack-tool]').dataset.agentPackTool)")
+    assert len(tools) >= 2, 'Pack has too few switchable tools for a mixed state: ' + json.dumps(tools)
+    group = scope + ' [data-agent-pack-toggle]'
+    if js(f"return document.querySelector('{group}').checked"):
+        click(group)
+    click(group)
+    wait_for(lambda: js(f"return document.querySelector('{scope}').dataset.state==='on'"), 'Pack group did not enable all tools')
+    click(f'{scope} [data-agent-pack-tool="{tools[0]}"] input')
+    wait_for(lambda: js(f"const g=document.querySelector('{group}');return document.querySelector('{scope}').dataset.state==='mixed'&&g.indeterminate&&!g.checked"), 'Partial pack is not mixed')
+    assert 'Tools' in status(), status()
+    page('agent-tools')
+    assert 'Tools' in status(), 'Plugins page left the shared draft: ' + status()
+    assert js(f"return !document.querySelector('[data-agent-tool=\"{tools[0]}\"] input').checked && document.querySelector('[data-agent-tool=\"{tools[1]}\"] input').checked"), 'Tools page does not follow pack edits'
+    click('[data-module-page=agent-tools] [data-agent-save]')
+    wait_for(lambda: status().startswith('Сохранено'), 'Pack edits did not save: ' + status())
+    enabled = tomllib.loads(config.read_text())['tools']['enabled']
+    assert tools[0] not in enabled and all(name in enabled for name in tools[1:]), enabled
     # A narrow view retains controls inside the page rather than overflowing it.
     command('/window/rect', {'width': 900, 'height': 800})
     wait_for(lambda: js("const c=document.querySelector('.settings-content');return c.scrollWidth<=c.clientWidth+1 && c.getBoundingClientRect().right<=innerWidth+1"), 'Settings form overflows a narrow view')
     capture('context-narrow')
     command('/window/rect', {'width': 1440, 'height': 1000})
-    print('PASS: shared draft and history; typed forms, validation, sparse nested/list persistence, field reset and narrow layout: '
+    print('PASS: shared draft and history; plugin pack provenance, group/mixed toggles; typed forms, validation, sparse nested/list persistence, field reset and narrow layout: '
           + json.dumps({'saved_bytes': len(saved)}), flush=True)

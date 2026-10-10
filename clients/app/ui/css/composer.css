@@ -35,8 +35,9 @@
     transition: box-shadow 120ms ease;
 }
 
-.composer-shell:focus-within {
-    /* Inset focus paint keeps the measured dock geometry unchanged. */
+.composer-shell:has(textarea:focus) {
+    /* Only typing frames the composer; toolbar menus keep it calm.
+       Inset focus paint keeps the measured dock geometry unchanged. */
     box-shadow:
         0 12px 32px rgb(0 0 0 / 18%),
         inset 0 0 0 1px var(--border-strong);

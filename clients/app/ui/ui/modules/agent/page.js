@@ -1,5 +1,6 @@
 import { agentSettings } from "./store.js";
 import { changeLabel } from "./labels.js";
+import { onReveal, spotlight } from "./focus.js";
 
 export function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -61,6 +62,13 @@ function saveBar(service, signal) {
   return { element, sync };
 }
 
+function pageId(node) {
+  for (let current = node; current; current = current.getRootNode().host) {
+    const page = current.closest?.("[data-module-page]");
+    if (page) return page.dataset.modulePage;
+  }
+}
+
 /**
  * Shared frame of agent pages. `build` creates controls once per loaded
  * profile and registers `sync` callbacks that follow later draft changes.
@@ -78,7 +86,11 @@ export function mountAgentPage({ root, services, signal }, intro, build) {
       shown = key;
       syncs = [];
       body.replaceChildren();
-      if (state.snapshot) build(body, state.snapshot, view);
+      if (state.snapshot) {
+        build(body, state.snapshot, view);
+        const page = pageId(root);
+        if (page) onReveal(page, (selector) => spotlight(body.querySelector(selector)), signal);
+      }
       else if (state.loading) body.append(el("p", "settings-status", "Загружаю профиль агента…"));
       else if (state.feedback)
         body.append(

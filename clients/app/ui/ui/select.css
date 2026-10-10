@@ -28,13 +28,13 @@ select:not([multiple]):is(:not([size]), [size="0"], [size="1"]):hover:not(:disab
     background-color: var(--bg-panel-hover, #2d2d2d);
     border-color: var(--border-strong, #454545);
 }
+/* Pointer focus stays quiet: only keyboard focus draws the ring below. */
 select:not([multiple]):is(:not([size]), [size="0"], [size="1"]):focus {
     outline: none;
-    border-color: var(--text-muted, #a3a3a3);
-    box-shadow: 0 0 0 3px rgb(255 255 255 / 5%);
 }
 select:not([multiple]):is(:not([size]), [size="0"], [size="1"]):focus-visible {
-    outline: 2px solid var(--text-muted, #a3a3a3);
+    border-color: var(--text-muted, #a3a3a3);
+    outline: 1px solid var(--border-strong, #454545);
     outline-offset: 2px;
 }
 select:not([multiple]):is(:not([size]), [size="0"], [size="1"]):disabled {

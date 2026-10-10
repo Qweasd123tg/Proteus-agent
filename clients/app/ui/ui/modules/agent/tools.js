@@ -2,6 +2,8 @@ import { agentSettings } from "./store.js";
 import { el, mountAgentPage } from "./page.js";
 import { slotSection } from "./choices.js";
 import { safetyText, slotText } from "./labels.js";
+import { openAgentTarget } from "./focus.js";
+import { ownerOf } from "./packs.js";
 
 // Descriptions are written for the model; long ones start folded.
 const FOLDED_DESCRIPTION = 160;
@@ -47,7 +49,21 @@ export function mount(context) {
         const meta = el("span", "agent-choice-meta");
         if (tool.safety) meta.append(el("span", "agent-chip", safetyText[tool.safety] ?? tool.safety));
         if (tool.runtime_managed) meta.append(el("span", "agent-chip", "управляется runtime"));
-        if (!tool.registered) meta.append(el("span", "agent-chip warning", "не зарегистрирован"));
+        // Disabled tools of a plugin are listed but not registered by design.
+        const missing = !tool.registered && tool.enabled !== false;
+        if (missing) meta.append(el("span", "agent-chip warning", "не зарегистрирован"));
+        const owner = ownerOf(tool);
+        if (owner) {
+          const link = el("button", "agent-owner-link", `${owner.plugin} · ${owner.pack}`);
+          link.type = "button";
+          link.dataset.agentOwner = `${owner.plugin}/${owner.pack}`;
+          link.setAttribute("aria-label", `Плагин ${owner.plugin}, пакет ${owner.pack}`);
+          link.addEventListener("click", (event) => {
+            event.preventDefault();
+            openAgentTarget("agent-plugins", `[data-agent-plugin="${CSS.escape(owner.plugin)}"] [data-agent-pack="${CSS.escape(owner.pack)}"]`);
+          }, { signal: view.signal });
+          meta.append(link);
+        }
         const name = el("code", "", tool.name);
         if (tool.source) name.title = `Источник: ${tool.source}`;
         const description = el("span", "settings-hint agent-tool-description", tool.description || "Описание не задано");
@@ -63,7 +79,7 @@ export function mount(context) {
           text.append(more);
         }
         text.append(meta);
-        item.classList.toggle("unavailable", !tool.registered);
+        item.classList.toggle("unavailable", missing);
         item.append(text, input);
         list.append(item);
         rows.set(tool.name, { item, input, tool });
