@@ -2,10 +2,36 @@ use super::*;
 
 #[tokio::test]
 async fn route_config_builder_returns_editable_module_slots() {
-    let (state, server, _config_dir) = test_state().await;
+    let config_dir = tempfile::tempdir().unwrap();
+    let config_path = config_dir.path().join("config.toml");
+    let mut config = crate::test_model::config();
+    config.tools.enabled = vec!["git_status".into()];
+    config.components.insert(
+        "tool-suite".into(),
+        serde_json::from_value(json!({
+            "command": crate::test_model::reference_module(),
+            "description": "Example multi-pack plugin",
+            "exports": {"tool": {
+                "git_tools": {"description": "Git pack"},
+                "file_tools": {}
+            }}
+        }))
+        .unwrap(),
+    );
+    config.components.insert("probe-component".into(), serde_json::from_value(json!({
+        "command": "sh",
+        "args": [PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/process_tool.sh"), "probe.pack", "probe-component"],
+        "exports": {"tool": {"probe.pack": {}}}
+    })).unwrap());
+    std::fs::write(&config_path, toml::to_string(&config).unwrap()).unwrap();
+    let server = AgentAppServer::launch(config, config_dir.path().into(), Some(&config_path))
+        .await
+        .unwrap();
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let response = route_request(
-        state,
+        state.clone(),
         authed_get_request(&session_uri("/config/builder", &server)),
     )
     .await
@@ -68,6 +94,123 @@ async fn route_config_builder_returns_editable_module_slots() {
         snapshot.get("permission_modes"),
         Some(&json!(["plan", "normal", "auto"]))
     );
+
+    let typed: proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot =
+        serde_json::from_slice(&bytes).expect("canonical builder DTO");
+    let suite = typed
+        .plugins
+        .iter()
+        .find(|plugin| plugin.id == "tool-suite")
+        .unwrap();
+    assert_eq!(
+        suite.tool_packs.len(),
+        2,
+        "multiple packs share one component"
+    );
+    assert_eq!(
+        suite
+            .tool_packs
+            .iter()
+            .find(|pack| pack.id == "git_tools")
+            .unwrap()
+            .tools,
+        ["git_diff", "git_status"]
+    );
+    assert_eq!(
+        suite
+            .exports
+            .iter()
+            .find(|export| export.id == "git_tools")
+            .unwrap()
+            .description
+            .as_deref(),
+        Some("Git pack")
+    );
+    let git_diff = typed
+        .tools
+        .iter()
+        .find(|tool| tool.name == "git_diff")
+        .unwrap();
+    assert_eq!(git_diff.owner.as_ref().unwrap().component_id, "tool-suite");
+    assert_eq!(git_diff.owner.as_ref().unwrap().module_id, "git_tools");
+    assert!(!git_diff.enabled && !git_diff.registered && !git_diff.runtime_managed);
+    let probe = typed
+        .plugins
+        .iter()
+        .find(|plugin| plugin.id == "probe-component")
+        .unwrap();
+    assert!(
+        probe.exports[0]
+            .config_schema
+            .as_ref()
+            .unwrap()
+            .fields
+            .is_empty()
+    );
+    assert_eq!(probe.tool_packs[0].tools, ["detached_probe"]);
+    let (runtime, _, _, _) = server.runtime.configuration_view().await;
+    assert!(runtime.registry.tools.get("git_status").is_some());
+    assert!(
+        runtime.registry.tools.get("git_diff").is_none(),
+        "inventory must not register disabled tools"
+    );
+    assert!(runtime.registry.tools.get("detached_probe").is_none());
+    let topology = server.topology_snapshot().await;
+    assert!(
+        !topology.tools.iter().any(|tool| tool.name == "git_diff"),
+        "execution topology must not advertise inventory as registered"
+    );
+
+    // Pack switches save the ordinary enabled list; execution and cold config
+    // must follow it without altering the component launch/authority surface.
+    for enabled in [json!(["git_diff", "git_status"]), json!([])] {
+        let response = route_request(
+            state.clone(),
+            authed_json_request(
+                &session_uri("/config/builder", &server),
+                json!({"tools_enabled": enabled}),
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let saved: Value = serde_json::from_slice(&response_bytes(response).await).unwrap();
+        assert_eq!(saved["tools_enabled"], enabled);
+        assert_eq!(
+            serde_json::to_value(
+                AppConfig::load(Some(&config_path))
+                    .await
+                    .unwrap()
+                    .tools
+                    .enabled
+            )
+            .unwrap(),
+            enabled
+        );
+        let (runtime, _, _, _) = server.runtime.configuration_view().await;
+        assert_eq!(
+            runtime.registry.tools.get("git_diff").is_some(),
+            !enabled.as_array().unwrap().is_empty()
+        );
+        let suite = saved["plugins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|plugin| plugin["id"] == "tool-suite")
+            .unwrap();
+        let export = suite["exports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|export| export["id"] == "git_tools")
+            .unwrap();
+        assert_eq!(export["active"], !enabled.as_array().unwrap().is_empty());
+        assert_eq!(
+            suite["tool_packs"].as_array().unwrap().len(),
+            2,
+            "disabled packs stay discoverable"
+        );
+    }
 
     server.shutdown().await;
 }

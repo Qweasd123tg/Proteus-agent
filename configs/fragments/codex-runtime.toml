@@ -48,7 +48,20 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.reference-capabilities.exports.compactor.codex]
 
-[components.reference-capabilities.exports.tool."reference.tools"]
+# Отдельные паки tools делят тот же процесс и сохраняют прежнюю tool surface.
+[components.reference-capabilities.exports.tool.file_tools]
+
+[components.reference-capabilities.exports.tool.git_tools]
+
+[components.reference-capabilities.exports.tool.shell_tools]
+
+[components.reference-capabilities.exports.tool.plan_tool]
+
+[components.reference-capabilities.exports.tool.rust_lsp]
+
+[components.reference-capabilities.exports.tool.skill_tool]
+
+[components.reference-capabilities.exports.tool.policy_tools]
 
 [tools]
 enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "apply_patch", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]

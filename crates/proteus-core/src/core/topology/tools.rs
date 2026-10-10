@@ -29,6 +29,7 @@ pub(super) fn build_tools(
                 description: spec.description.clone(),
                 safety: tool_safety_label(&spec.safety).to_owned(),
                 source: source.label(),
+                owner: source.process_owner().cloned(),
                 enabled: tool_enabled(config, source, &spec.name),
                 runtime_managed: runtime_managed(source, &spec.name),
                 registered: true,
@@ -61,7 +62,7 @@ fn runtime_managed(source: &ToolSource, _name: &str) -> bool {
         )
 }
 
-fn tool_safety_label(safety: &ToolSafety) -> &'static str {
+pub(crate) fn tool_safety_label(safety: &ToolSafety) -> &'static str {
     match safety {
         ToolSafety::ReadOnly => "ReadOnly",
         ToolSafety::WritesFiles => "WritesFiles",

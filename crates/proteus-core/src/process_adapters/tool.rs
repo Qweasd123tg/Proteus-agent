@@ -5,7 +5,8 @@ use async_trait::async_trait;
 
 use crate::contracts::{
     PROCESS_TOOL_CONTRACT_VERSION, PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD,
-    ProcessToolInvokeInput, ProcessToolInvokeResponse, ProcessToolListResponse, Tool, ToolContext,
+    ProcessToolInvokeInput, ProcessToolInvokeResponse, ProcessToolListResponse, ProcessToolOwner,
+    ProvidedTool, Tool, ToolContext, ToolSource,
 };
 use crate::domain::{ToolCall, ToolResult, ToolSpec};
 
@@ -17,7 +18,7 @@ pub fn build_process_tools(
     configs: &[ProcessExportConfig],
     workspace: &Path,
     skills: &crate::domain::SkillRuntimeSettings,
-) -> Result<HashMap<String, Arc<dyn Tool>>> {
+) -> Result<HashMap<String, ProvidedTool>> {
     let mut tools = HashMap::new();
     for config in configs.iter().cloned() {
         let client = Arc::new(ProcessExportClient::connect(
@@ -60,7 +61,16 @@ pub fn build_process_tools(
                 client: invocation_client,
                 skills: skills.clone(),
             });
-            if tools.insert(name.clone(), tool).is_some() {
+            let source = ToolSource::Process {
+                owner: ProcessToolOwner {
+                    component_id: config.component_id().to_owned(),
+                    module_id: config.module_id().to_owned(),
+                },
+            };
+            if tools
+                .insert(name.clone(), ProvidedTool::new(source, tool))
+                .is_some()
+            {
                 bail!("duplicate process tool name: {name}");
             }
         }

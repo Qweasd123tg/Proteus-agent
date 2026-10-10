@@ -261,33 +261,7 @@ mod tests {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum ToolSource {
-    Builtin { provider: String },
-    ProviderHosted { provider: String },
-    Config { origin: String },
-    Mcp { server: String },
-    Dynamic { origin: String },
-}
-
-impl ToolSource {
-    pub fn builtin(provider: impl Into<String>) -> Self {
-        Self::Builtin {
-            provider: provider.into(),
-        }
-    }
-
-    pub fn label(&self) -> String {
-        match self {
-            Self::Builtin { provider } => format!("builtin:{provider}"),
-            Self::ProviderHosted { provider } => format!("provider_hosted:{provider}"),
-            Self::Config { origin } => format!("config:{origin}"),
-            Self::Mcp { server } => format!("mcp:{server}"),
-            Self::Dynamic { origin } => format!("dynamic:{origin}"),
-        }
-    }
-}
+pub use super::tool_source::{ProcessToolOwner, ToolSource};
 
 #[derive(Clone)]
 pub struct ToolEntry {

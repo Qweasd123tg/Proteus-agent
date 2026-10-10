@@ -17,9 +17,6 @@ impl AgentRuntime {
             state.permission_mode,
         )
     }
-    pub(crate) async fn config_schemas(&self) -> crate::core::registry::ConfigSchemas {
-        self.snapshot().await.registry.config_schemas().await
-    }
     pub async fn model_quota(&self) -> Result<Option<crate::contracts::ModelQuotaSnapshot>> {
         let snapshot = self.snapshot().await;
         let quota = snapshot.registry.model_quota().await?;

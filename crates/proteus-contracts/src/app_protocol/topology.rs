@@ -72,6 +72,7 @@ pub struct ToolTopology {
     pub description: String,
     pub safety: String,
     pub source: String,
+    pub owner: Option<crate::contracts::ProcessToolOwner>,
     pub enabled: bool,
     /// Runtime decides this tool's enabled state independently of `tools.enabled`.
     pub runtime_managed: bool,

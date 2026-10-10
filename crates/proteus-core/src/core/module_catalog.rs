@@ -3,17 +3,16 @@ use std::{any::Any, collections::HashMap, path::Path, sync::Arc};
 use anyhow::{Result, bail};
 
 mod components;
+mod tools;
 
 use crate::{
     contracts::{
         ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model, PatchApplier,
-        SearchBackend, ToolExposure, ToolRegistry, Workflow, register_provider_tools,
+        SearchBackend, ToolExposure, Workflow,
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{ProcessContextProvider, ProcessExportConfig},
-    stubs::{NoMemory, NullPatchApplier, NullSearch},
-    tools::{BuiltinToolProvider, is_builtin_tool_name, register_configured_tools},
 };
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -366,114 +365,6 @@ impl ModuleCatalog {
         ctx: &ModuleBuildContext<'_>,
     ) -> Result<Arc<dyn Workflow>> {
         self.build_typed::<dyn Workflow>(slot::WORKFLOW, module, &ModuleBuildInput::Module(ctx))
-    }
-
-    /// Builds the configured tool surface for operational inspection without
-    /// exposing the host-owned structural absence implementations.
-    pub fn build_tools_for_inspection(
-        &self,
-        config: &AppConfig,
-        cwd: &Path,
-    ) -> Result<ToolRegistry> {
-        let addons = crate::core::agent_plugins::resolve(&config.addons, cwd);
-        let context_providers = self.build_context_providers(cwd, &addons.skills)?;
-        let ctx = ModuleBuildContext {
-            config,
-            cwd,
-            context_providers: &context_providers,
-        };
-        self.build_tools(
-            &ctx,
-            Arc::new(NullSearch),
-            Arc::new(NullPatchApplier),
-            Arc::new(NoMemory),
-            &addons.skills,
-            &addons.servers,
-        )
-        .map(|(tools, _)| tools)
-    }
-
-    pub(crate) fn build_tools(
-        &self,
-        ctx: &ModuleBuildContext<'_>,
-        search: Arc<dyn SearchBackend>,
-        patch: Arc<dyn PatchApplier>,
-        memory: Arc<dyn MemoryStore>,
-        skills: &crate::domain::SkillRuntimeSettings,
-        plugin_servers: &[crate::domain::ConfiguredMcpServerConfig],
-    ) -> Result<(
-        ToolRegistry,
-        Vec<proteus_contracts::app_protocol::addons::AppMcpServerState>,
-    )> {
-        let mut tools = ToolRegistry::new();
-
-        let process_tools_by_name =
-            crate::process_adapters::build_process_tools(&self.process_tools, ctx.cwd, skills)?;
-        let builtin_names = ctx
-            .config
-            .tools
-            .enabled
-            .iter()
-            .filter(|name| is_builtin_tool_name(name))
-            .cloned()
-            .collect::<Vec<_>>();
-        let unknown_enabled = ctx
-            .config
-            .tools
-            .enabled
-            .iter()
-            .filter(|name| {
-                !is_builtin_tool_name(name) && !process_tools_by_name.contains_key(*name)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        if let Some(name) = unknown_enabled.first() {
-            bail!(
-                "unsupported tool: '{name}'. Configure a process Tool module that provides it or remove it from tools.enabled."
-            );
-        }
-
-        let builtin_tools =
-            BuiltinToolProvider::new(builtin_names, search.clone(), patch.clone(), memory.clone());
-        register_provider_tools(&mut tools, &builtin_tools)?;
-        let mut mcp_servers = ctx.config.tools.mcp_servers.clone();
-        mcp_servers.extend_from_slice(plugin_servers);
-        for server in &mut mcp_servers {
-            server.enabled &= !ctx
-                .config
-                .addons
-                .disabled_mcp_servers
-                .contains(&server.name);
-        }
-        let states = register_configured_tools(
-            &mut tools,
-            &ctx.config.tools.configured,
-            &mcp_servers,
-            ctx.cwd,
-            search.clone(),
-            patch.clone(),
-        )?;
-
-        for name in &ctx.config.tools.enabled {
-            let Some(process_tool) = process_tools_by_name.get(name) else {
-                continue;
-            };
-            let spec = process_tool.spec();
-            if tools.get(&spec.name).is_some() {
-                bail!(
-                    "process tool '{}' conflicts with an already registered builtin/configured tool",
-                    spec.name
-                );
-            }
-            tools.register_arc(
-                crate::contracts::ToolSource::Dynamic {
-                    origin: "process-module".to_owned(),
-                },
-                Arc::clone(process_tool),
-            )?;
-        }
-
-        Ok((tools, states))
     }
 }
 

@@ -29,6 +29,7 @@ mod session_journal;
 mod session_store;
 mod tool_orchestrator;
 mod topology;
+pub(crate) use topology::tool_safety_label;
 mod topology_render;
 mod user_input;
 pub(crate) mod workflow_host;

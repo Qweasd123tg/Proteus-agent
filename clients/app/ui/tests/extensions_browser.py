@@ -314,7 +314,13 @@ model = "fixture-model"
 command = "proteus-reference-module"
 [components.model.exports.model.custom-model]
 [components.model.exports.workflow."coding.single_loop"]
-[components.model.exports.tool."reference.tools"]
+[components.model.exports.tool.file_tools]
+[components.model.exports.tool.git_tools]
+[components.model.exports.tool.shell_tools]
+[components.model.exports.tool.plan_tool]
+[components.model.exports.tool.rust_lsp]
+[components.model.exports.tool.skill_tool]
+[components.model.exports.tool.policy_tools]
 [components.model.exports.policy.allow_all]
 [modules]
 workflow = "coding.single_loop"

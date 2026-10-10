@@ -618,6 +618,14 @@ priority surface. Tool registration фильтруется `tools.enabled`; cont
 builder запрашивает provider по id через `host.context.provide`, а нужный
 порядок providers задаёт его собственный `module_config`.
 
+Пак tools — один такой export, а не отдельная обязательная программа. Например,
+`exports.tool.git_tools` и `exports.tool.file_tools` под одним `component`
+предоставляют независимые паки в общем процессе. Codex-family fragments
+выбирают узкие reference exports `file_tools`, `git_tools`, `shell_tools`,
+`plan_tool`, `rust_lsp`, `skill_tool`, `policy_tools` вместо агрегата
+`reference.tools`; состав tools и правила их исполнения сохранены. Агрегат
+остаётся отдельным допустимым выбором для других сборок.
+
 Tool export получает список specs с bootstrap timeout 30 000 мс. При исполнении
 каждого tool process adapter использует его `ToolSpec.timeout_ms` (при отсутствии
 — 30 000 мс) с запасом 1000 мс для settlement внешнего tool timeout. Явный
@@ -1126,6 +1134,10 @@ runtime snapshot меняется одним обновлением. Он не �
 `GET /config/builder` возвращает для каждого модуля nullable `config_schema`.
 Модельные exports находятся в `model_modules`, обработчики — в
 `hook_modules`, остальные выбираемые реализации — в `slots[].modules`.
+`plugins[]` описывает настроенные process components: `id`, `command`,
+nullable `description`, все `exports[]` (`slot`, `id`, `active`, описание и
+`config_schema`) и `tool_packs[]` (`id` export и имена его tools).
+Описание параметров `tool` и `context_provider` доступно в этих exports.
 Источник — валидированный manifest его process export, а не таблица
 reference module ids в Core или клиенте. Чтение описаний инициализирует
 настроенные components, включая невыбранные, через их обычные shared launchers;
@@ -1136,6 +1148,20 @@ selection и runtime snapshot при этом не меняются. Ошибк�
 конфигурации при сборке по-прежнему выполняет implementation.
 Просмотр defaults не добавляет их в `module_config`. Сброс поля удаляет
 переопределение, а неизвестные описанию поля остаются в общем черновике.
+
+Страница «Агент → Плагины» показывает процессные модули и их паки. Tools содержит
+typed `owner: null | {component_id, module_id}` и ссылку на свой плагин/пак.
+Принадлежность назначает host по configured export; `source` — только подпись,
+не ключ для восстановления владельца. Выключенные process tools входят в
+read-only inventory builder с `enabled = false`, `registered = false`, но
+не регистрируются для исполнения и не предлагаются модели. Состояния exports,
+inventory и схемы параметров читаются из одного runtime snapshot.
+Переключатель пака редактирует обычный `tools_enabled` в общем черновике;
+частичное включение отображается отдельно. `runtime_managed` tools этим
+переключателем не управляются. Плагины не включают все exports разом:
+`select_one` выбирается на странице своего slot, hooks сохраняют явный порядок.
+Пакеты Agent Plugins 1.0 (`addons.plugins`, skills/MCP) — другой способ загрузки;
+они показаны отдельным разделом и не превращаются в process components.
 
 Save сериализует read/prepare/persist/publish по каноническому пути профиля;
 повторное сохранение читает актуальный source, а файл заменяется atomic rename.

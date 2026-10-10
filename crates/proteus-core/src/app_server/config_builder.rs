@@ -1,4 +1,5 @@
 mod persistence;
+mod plugins;
 #[cfg(test)]
 mod tests;
 mod transaction;
@@ -17,7 +18,7 @@ use serde_json::Value;
 use crate::{
     core::{
         AppConfig, ModuleCatalogEntrySummary, ModuleSourceTopology, ModuleTopology, ModulesConfig,
-        ProviderProfileConfig, TopologySnapshot,
+        ProviderProfileConfig, TopologyBuildInput, TopologySnapshot, build_topology_snapshot,
         core_slots::{CoreSlotSelection, core_slot_descriptor_by_id},
     },
     domain::PermissionMode,
@@ -36,16 +37,27 @@ pub use proteus_contracts::app_protocol::config_builder::{
 
 impl AppServerHandle {
     pub async fn config_builder_snapshot(&self) -> ConfigBuilderSnapshot {
-        let topology = self.topology_snapshot().await;
-        let config = self.config.read().await.clone();
-        let mut snapshot = config_builder_snapshot_from_topology(&topology, &config);
+        let (runtime, _, _, mode) = self.runtime.configuration_view().await;
+        let tools = runtime.registry.tools.entries();
+        let topology = build_topology_snapshot(TopologyBuildInput {
+            plan: &runtime.assembly_plan,
+            tools: &tools,
+            module_epoch: runtime.epoch,
+            permission_mode: mode,
+            extra_warnings: Vec::new(),
+        });
+        let mut snapshot = config_builder_snapshot_from_topology(
+            &topology,
+            runtime.assembly_plan.config(),
+            &runtime.registry.process_tool_specs,
+        );
         if let Some(message) = self.profile_error.lock().await.clone() {
             snapshot.warnings.push(ConfigBuilderWarning {
                 severity: "error".into(),
                 message,
             });
         }
-        let descriptions = self.runtime.config_schemas().await;
+        let descriptions = runtime.registry.config_schemas().await;
         for module in snapshot
             .slots
             .iter_mut()
@@ -56,6 +68,16 @@ impl AppServerHandle {
             module.config_schema = descriptions
                 .schemas
                 .get(&(module.slot.clone(), module.id.clone()))
+                .cloned();
+        }
+        for export in snapshot
+            .plugins
+            .iter_mut()
+            .flat_map(|plugin| &mut plugin.exports)
+        {
+            export.config_schema = descriptions
+                .schemas
+                .get(&(export.slot.clone(), export.id.clone()))
                 .cloned();
         }
         snapshot
@@ -229,6 +251,7 @@ pub(super) fn config_builder_state(config: &AppConfig) -> ConfigBuilderState {
 pub(super) fn config_builder_snapshot_from_topology(
     topology: &TopologySnapshot,
     config: &AppConfig,
+    process_tool_specs: &[(crate::contracts::ToolSource, crate::domain::ToolSpec)],
 ) -> ConfigBuilderSnapshot {
     let target_path = config_builder_target_path(topology.config_path.as_deref().map(Path::new));
     let modules = topology.modules.clone();
@@ -252,6 +275,8 @@ pub(super) fn config_builder_snapshot_from_topology(
         })
         .collect();
 
+    let (tools, tool_warnings) = plugins::builder_tools(topology, process_tool_specs);
+    let plugins = plugins::builder_plugins(config, &tools);
     let state = config_builder_state(config);
     ConfigBuilderSnapshot {
         addon_settings: state.addon_settings,
@@ -279,19 +304,8 @@ pub(super) fn config_builder_snapshot_from_topology(
             .collect(),
         module_config: state.module_config,
         tools_enabled: state.tools_enabled,
-        tools: topology
-            .tools
-            .iter()
-            .map(|tool| ConfigBuilderTool {
-                name: tool.name.clone(),
-                source: tool.source.clone(),
-                safety: tool.safety.clone(),
-                description: tool.description.clone(),
-                enabled: tool.enabled,
-                runtime_managed: tool.runtime_managed,
-                registered: tool.registered,
-            })
-            .collect(),
+        tools,
+        plugins,
         warnings: topology
             .warnings
             .iter()
@@ -299,6 +313,7 @@ pub(super) fn config_builder_snapshot_from_topology(
                 severity: warning.severity.clone(),
                 message: warning.message.clone(),
             })
+            .chain(tool_warnings)
             .collect(),
         slots,
     }

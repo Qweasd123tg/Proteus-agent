@@ -1,6 +1,9 @@
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+mod plugins;
+pub use plugins::{ConfigBuilderPlugin, ConfigBuilderPluginExport, ConfigBuilderToolPack};
+
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigBuilderSnapshot {
@@ -21,6 +24,7 @@ pub struct ConfigBuilderSnapshot {
     pub module_config: BTreeMap<String, BTreeMap<String, Value>>,
     pub tools_enabled: Vec<String>,
     pub tools: Vec<ConfigBuilderTool>,
+    pub plugins: Vec<ConfigBuilderPlugin>,
     pub slots: Vec<ConfigBuilderSlot>,
     pub warnings: Vec<ConfigBuilderWarning>,
 }
@@ -81,6 +85,7 @@ pub struct ConfigBuilderWarning {
 pub struct ConfigBuilderTool {
     pub name: String,
     pub source: String,
+    pub owner: Option<crate::contracts::ProcessToolOwner>,
     pub safety: String,
     pub description: String,
     pub enabled: bool,

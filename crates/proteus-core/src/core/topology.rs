@@ -2,6 +2,7 @@ mod edges;
 mod modules;
 mod slots;
 mod tools;
+pub(crate) use tools::tool_safety_label;
 mod types;
 
 pub use types::*;
@@ -122,7 +123,11 @@ mod tests {
             name: "grep".to_owned(),
             description: "Search files".to_owned(),
             safety: "ReadOnly".to_owned(),
-            source: "dynamic/process-module".to_owned(),
+            source: "process:search-tools/grep-pack".to_owned(),
+            owner: Some(crate::contracts::ProcessToolOwner {
+                component_id: "search-tools".to_owned(),
+                module_id: "grep-pack".to_owned(),
+            }),
             enabled: true,
             runtime_managed: false,
             registered: true,

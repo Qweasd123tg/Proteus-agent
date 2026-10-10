@@ -52,6 +52,12 @@ pub struct ProcessExportLaunchConfig {
     description: Option<String>,
 }
 
+impl ProcessExportLaunchConfig {
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+}
+
 impl ProcessComponentConfig {
     pub fn process_spec(&self, workspace: &Path) -> Result<ProcessSpec> {
         Ok(ProcessSpec::new(self.command.clone())

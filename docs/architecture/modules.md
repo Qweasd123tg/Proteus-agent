@@ -34,6 +34,11 @@
   программу и общий жизненный цикл её реализаций.
 - **`exports.<slot>.<module_id>`** — запись о том, какую реализацию слота
   предоставляет этот модуль. Для неё задаются параметры вызова.
+- **Процессный плагин** — название настроенного `component` на странице
+  «Агент → Плагины». Это тот же внешний модуль, не новый loader и не расширение UI.
+- **Пак инструментов** — tools одного export `tool/<module_id>`. Один плагин
+  может содержать несколько паков и реализации других слотов. Групповое
+  включение меняет только `tools.enabled`, не права и не жизненный цикл процесса.
 - **`module_config.<slot>.<module_id>`** — настройки самой реализации;
   Core передаёт их модулю, не разбирая содержимое.
 - **Reference-модуль** — поставляемый пример и проверочная реализация без
@@ -87,6 +92,13 @@ User-only tools не видны модели, но вызываются поль
 policy/approval/safety/cancellation. Команда не получает authority соседнего hook
 или workflow export. [DTO и callbacks](process-module-architecture.md#authority-table),
 [каталог и исполнение](../guides/runtime-and-events.md#slash-команды).
+
+Core сохраняет владельца process tool как typed `ProcessToolOwner`:
+`component_id` и `module_id` берутся из активного configured export, а не из
+имени, категории, tags или утверждения самого tool. Этот provenance доступен
+в topology и Config Builder и не меняет policy/approval/slot authority.
+Builder отдельно показывает обнаруженные выключенные tools; в исполняемый
+`ToolRegistry` и набор кандидатов модели они не попадают.
 
 ## Как Подключить Модуль
 

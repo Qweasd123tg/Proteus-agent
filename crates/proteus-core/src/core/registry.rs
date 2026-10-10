@@ -3,7 +3,6 @@ use std::{path::PathBuf, sync::Arc};
 use anyhow::Result;
 
 mod config_schemas;
-pub(crate) use config_schemas::ConfigSchemas;
 
 use crate::{
     contracts::{
@@ -36,6 +35,7 @@ pub struct RuntimeRegistry {
     pub memory: Arc<dyn MemoryStore>,
     pub context: Arc<dyn ContextBuilder>,
     pub tools: ToolRegistry,
+    pub(crate) process_tool_specs: Vec<(crate::contracts::ToolSource, crate::domain::ToolSpec)>,
     pub policy: Arc<dyn ApprovalPolicy>,
     pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
@@ -140,7 +140,7 @@ impl RuntimeRegistry {
             };
         let agent_control_runtime = AgentControlRuntime::from_config(&config.agent_control)?;
         let agent_control = agent_control_runtime.service();
-        let (mut tools, mcp_servers) = catalog.build_tools(
+        let surface = catalog.build_tools(
             &build_ctx,
             search.clone(),
             patch.clone(),
@@ -148,6 +148,7 @@ impl RuntimeRegistry {
             &addons.skills,
             &addons.servers,
         )?;
+        let mut tools = surface.tools;
         agent_control_runtime.register_tools(&mut tools, config.runtime.workflow_timeout_ms)?;
         if let (Some(service), Some(config)) = (&model_service, &model_config) {
             crate::core::register_provider_hosted_tools(
@@ -180,6 +181,7 @@ impl RuntimeRegistry {
             memory,
             context,
             tools,
+            process_tool_specs: surface.process_tool_specs,
             policy,
             patch,
             compactor,
@@ -187,7 +189,7 @@ impl RuntimeRegistry {
             agent_control,
             workflow,
             context_providers,
-            mcp_servers,
+            mcp_servers: surface.mcp_servers,
             plugins: addons.plugins,
         })
     }

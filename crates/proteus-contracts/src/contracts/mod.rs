@@ -27,6 +27,7 @@ pub mod tool;
 pub mod tool_execution_recorder;
 pub mod tool_exposure;
 pub mod tool_provider;
+pub mod tool_source;
 pub mod user_input;
 pub mod workflow;
 pub mod workflow_checkpoint;
